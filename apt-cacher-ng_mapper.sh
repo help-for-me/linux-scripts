@@ -16,6 +16,16 @@
 #   sudo bash run-all-scripts.sh
 
 # --------------------------------------------------
+# Prevent re-running if already launched (for example, if apt-cacher-ng_mapper.sh
+# ends by re-invoking run-all-scripts.sh). If the environment variable is already set,
+# we assume that we’re in a recursive call and simply exit.
+# --------------------------------------------------
+if [ -n "$RUN_ALL_SCRIPTS_ALREADY_RUNNING" ]; then
+    exit 0
+fi
+export RUN_ALL_SCRIPTS_ALREADY_RUNNING=1
+
+# --------------------------------------------------
 # Preliminary: Ensure that 'dialog' is installed (auto-install if missing)
 # --------------------------------------------------
 if ! command -v dialog &>/dev/null; then
@@ -38,6 +48,8 @@ clear
 if [ $response -eq 0 ]; then
     dialog --title "Running Mapper" --infobox "Attempting to run apt-cacher-ng_mapper.sh..." 5 50
     if curl -s --head --fail "$APT_MAPPER_URL" > /dev/null; then
+        # Run the mapper. (If the mapper calls run-all-scripts.sh at the end,
+        # our guard at the top of this script will prevent a loop.)
         curl -sSL "$APT_MAPPER_URL" | bash
         dialog --title "Mapper Finished" --msgbox "Finished running apt-cacher-ng_mapper.sh." 7 50
     else
