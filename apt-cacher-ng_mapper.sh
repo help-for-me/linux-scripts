@@ -27,7 +27,7 @@ if [[ "$EUID" -ne 0 ]]; then
 fi
 
 # Ask the user if they want to update and upgrade packages.
-dialog --yesno "Would you like to update and upgrade your packages now?" 8 60
+dialog --yesno "We'll set up apt-cacher-ng. Would you like to update and upgrade your packages once everything is set up?" 8 60
 if [[ $? -eq 0 ]]; then
     DO_UPGRADE=true
 else
