@@ -1,89 +1,144 @@
 #!/bin/bash
-# apt-cacher-ng_mapper.sh
-# This script configures APT to use an apt-cacher-ng proxy.
-# It prompts for the proxy IP address (optionally with port).
-# If no port is specified, the script uses the default port 3142.
-# Before applying the configuration, it verifies that the server is reachable
-# by accepting either a 406 (usage information) or any 2xx HTTP response.
-# If the check fails, you are given the option to retry or abort.
+#
+# run-all-scripts.sh
+#
+# This script performs the following actions:
+#
+# 1. Optionally runs apt-cacher-ng_mapper.sh to configure apt-cacher-ng.
+# 2. Ensures that jq (a JSON processor) is installed; if not, it uses a dialog prompt to offer installation.
+# 3. Ensures that dialog is installed (auto-installs it if missing) so that all interactive prompts use dialog.
+# 4. Fetches a list of shell scripts (.sh) from the GitHub repository
+#    https://github.com/help-for-me/linux-scripts (only from the repository's root),
+#    excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
+# 5. Displays a dialog checklist of the remaining scripts and allows the user to select one or more to run.
+#
+# Usage:
+#   sudo bash run-all-scripts.sh
 
-# Check if 'dialog' is installed
+# --------------------------------------------------
+# Preliminary: Ensure that 'dialog' is installed (auto-install if missing)
+# --------------------------------------------------
 if ! command -v dialog &>/dev/null; then
-    echo "The 'dialog' utility is required. Install it with:"
-    echo "  sudo apt-get install dialog"
-    exit 1
-fi
-
-# Check for root privileges
-if [ "$EUID" -ne 0 ]; then
-    dialog --msgbox "This script must be run as root. Please run with sudo." 6 50
-    exit 1
-fi
-
-# Define the configuration file path
-config_file="/etc/apt/apt.conf.d/02proxy"
-
-# Function to prompt the user for the proxy IP (and optional port)
-prompt_proxy() {
-    local tmpfile
-    tmpfile=$(mktemp /tmp/apt-proxy.XXXX)
-
-    dialog --title "Configure Apt Proxy" \
-           --inputbox "Enter your apt-cacher-ng server IP (optionally with port, e.g., 192.168.1.100:3142):" \
-           8 60 2> "$tmpfile"
-
-    local response=$?
-    local input
-    input=$(cat "$tmpfile")
-    rm -f "$tmpfile"
-
-    # If the user pressed Cancel or Esc, abort
-    if [ $response -ne 0 ]; then
-        dialog --msgbox "Operation cancelled." 6 40
+    echo "Dialog is not installed. Installing dialog..."
+    sudo apt update && sudo apt install dialog -y
+    if ! command -v dialog &>/dev/null; then
+        echo "Error: dialog installation failed. Exiting."
         exit 1
     fi
-
-    # If no port is provided, default to 3142
-    if [[ "$input" != *:* ]]; then
-        echo "${input}:3142"
-    else
-        echo "$input"
-    fi
-}
-
-# Loop to prompt and check the server until it succeeds or the user aborts
-while true; do
-    proxy=$(prompt_proxy)
-    check_url="http://${proxy}/"
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$check_url")
-
-    # Accept either a 406 (usage information) or any 2xx HTTP response as valid.
-    if [[ "$http_code" == "406" || "${http_code:0:1}" == "2" ]]; then
-        break  # Valid proxy found; exit loop.
-    else
-        # Offer the user a choice to retry or abort.
-        dialog --yesno "Error: Could not connect to apt-cacher-ng server at ${check_url}.\nReceived HTTP status code: ${http_code}.\n\nWould you like to retry?" 10 60
-        choice=$?
-        if [ $choice -ne 0 ]; then
-            # User chose "No" (or pressed Esc)
-            dialog --msgbox "Operation aborted." 6 40
-            exit 1
-        fi
-        # Otherwise, loop again to re-prompt.
-    fi
-done
-
-# Define the proxy configuration line for APT
-proxy_conf="Acquire::http::Proxy \"http://${proxy}/\";"
-
-# Backup existing configuration file if it exists
-if [ -f "$config_file" ]; then
-    cp "$config_file" "${config_file}.bak"
-    dialog --msgbox "Existing configuration backed up to ${config_file}.bak" 6 50
 fi
 
-# Write the proxy configuration to the file
-echo "$proxy_conf" > "$config_file"
+# --------------------------------------------------
+# Step 0: Ask the user if they want to run apt-cacher-ng_mapper.sh using dialog.
+# --------------------------------------------------
+APT_MAPPER_URL="https://raw.githubusercontent.com/help-for-me/linux-scripts/refs/heads/main/apt-cacher-ng_mapper.sh"
 
-# Inform the user of the successful configuration
-dialog --msgbox "APT is now configured to use the proxy: http://${proxy}/" 6 60
+dialog --title "APT Cacher NG Mapper" --yesno "Would you like to run apt-cacher-ng_mapper.sh to configure apt-cacher-ng?" 7 60
+response=$?
+clear
+if [ $response -eq 0 ]; then
+    dialog --title "Running Mapper" --infobox "Attempting to run apt-cacher-ng_mapper.sh..." 5 50
+    if curl -s --head --fail "$APT_MAPPER_URL" > /dev/null; then
+        curl -sSL "$APT_MAPPER_URL" | bash
+        dialog --title "Mapper Finished" --msgbox "Finished running apt-cacher-ng_mapper.sh." 7 50
+    else
+        dialog --title "Error" --msgbox "apt-cacher-ng_mapper.sh not found at $APT_MAPPER_URL. Skipping..." 7 50
+    fi
+else
+    dialog --title "Skipped" --msgbox "Skipping apt-cacher-ng_mapper.sh as per user request." 7 50
+fi
+clear
+
+# --------------------------------------------------
+# Step 1: Ensure that jq is installed.
+# --------------------------------------------------
+if ! command -v jq &>/dev/null; then
+    dialog --title "jq Installation" --yesno "This script requires jq (a JSON processor) to function.\nWithout jq, we cannot parse the repository contents.\n\nWould you like to install jq?" 10 60
+    response=$?
+    clear
+    if [ $response -eq 0 ]; then
+        dialog --title "Installing jq" --infobox "Installing jq..." 5 50
+        sudo apt update && sudo apt install jq -y
+        if ! command -v jq &>/dev/null; then
+            dialog --title "Error" --msgbox "Error: jq installation failed. Aborting." 8 40
+            exit 1
+        fi
+    else
+        dialog --title "jq Required" --msgbox "jq is required for this script. Aborting." 8 40
+        exit 1
+    fi
+fi
+clear
+
+# --------------------------------------------------
+# Step 2: Fetch repository contents from GitHub.
+# --------------------------------------------------
+REPO_API_URL="https://api.github.com/repos/help-for-me/linux-scripts/contents"
+dialog --title "Fetching Scripts" --infobox "Fetching list of shell scripts from the repository..." 5 60
+RESPONSE=$(curl -sSL "$REPO_API_URL")
+if [ -z "$RESPONSE" ]; then
+    dialog --title "Error" --msgbox "Error: Could not fetch repository information." 8 50
+    exit 1
+fi
+clear
+
+# --------------------------------------------------
+# Step 3: Process repository contents.
+# --------------------------------------------------
+declare -A script_names
+declare -A script_urls
+index=1
+
+# Get files ending with .sh, excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
+SCRIPTS=$(echo "$RESPONSE" | jq -r '.[] | select(.type=="file") | select(.name|endswith(".sh")) | "\(.name) \(.download_url)"')
+
+while IFS= read -r line; do
+    script_name=$(echo "$line" | awk '{print $1}')
+    script_url=$(echo "$line" | awk '{print $2}')
+    
+    if [[ "$script_name" == "run-all-scripts.sh" || "$script_name" == "apt-cacher-ng_mapper.sh" ]]; then
+        continue
+    fi
+    
+    script_names[$index]="$script_name"
+    script_urls[$index]="$script_url"
+    ((index++))
+done <<< "$SCRIPTS"
+
+# --------------------------------------------------
+# Step 4: Display and execute the remaining scripts.
+# --------------------------------------------------
+if [ ${#script_names[@]} -eq 0 ]; then
+    dialog --title "No Scripts Found" --msgbox "No additional shell scripts found to run." 7 50
+    exit 0
+fi
+
+# Build checklist options for dialog.
+list_count=${#script_names[@]}
+cmd=(dialog --clear --stdout --checklist "Select the scripts to run:" 15 50 "$list_count")
+for key in $(echo "${!script_names[@]}" | tr ' ' '\n' | sort -n); do
+    cmd+=("$key" "${script_names[$key]}" "off")
+done
+
+selections=$("${cmd[@]}")
+ret_code=$?
+clear
+if [ $ret_code -ne 0 ] || [ -z "$selections" ]; then
+    dialog --title "No Selection" --msgbox "No scripts selected. Exiting." 7 50
+    exit 0
+fi
+
+selected=($selections)
+
+for num in "${selected[@]}"; do
+    if [[ -z "${script_names[$num]}" ]]; then
+        dialog --title "Invalid Selection" --msgbox "Invalid selection: $num. Skipping." 7 50
+        continue
+    fi
+    dialog --title "Running Script" --infobox "Running script: ${script_names[$num]}..." 5 50
+    curl -sSL "${script_urls[$num]}" | bash
+    dialog --title "Finished" --msgbox "Finished running ${script_names[$num]}." 7 50
+    clear
+done
+
+dialog --title "Done" --msgbox "All selected scripts have been executed." 7 50
+clear
