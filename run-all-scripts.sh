@@ -4,7 +4,7 @@
 #
 # This script performs the following actions:
 #
-# Step 0: Optionally run apt-cacher-ng_mapper.sh (the APT Cacher NG Installer) to configure apt-cacher-ng.
+# Step 0: Optionally run the APT Cacher NG Installer (apt-cacher-ng_mapper.sh) to configure apt-cacher-ng.
 # Step 1: Ensure that jq (a JSON processor) is installed.
 # Step 2: Optionally ensure that dialog is installed for interactive script selection.
 # Step 3: Fetch a list of shell scripts (.sh) from the GitHub repository
