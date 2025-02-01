@@ -27,7 +27,6 @@ config_file="/etc/apt/apt.conf.d/02proxy"
 prompt_proxy() {
     local tmpfile
     tmpfile=$(mktemp /tmp/apt-proxy.XXXX)
-    trap 'rm -f "$tmpfile"' EXIT
 
     dialog --title "Configure Apt Proxy" \
            --inputbox "Enter your apt-cacher-ng server IP (optionally with port, e.g., 192.168.1.100:3142):" \
@@ -37,7 +36,6 @@ prompt_proxy() {
     local input
     input=$(cat "$tmpfile")
     rm -f "$tmpfile"
-    trap - EXIT
 
     # If the user pressed Cancel or Esc, abort
     if [ $response -ne 0 ]; then
@@ -59,7 +57,7 @@ while true; do
     check_url="http://${proxy}/"
     http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$check_url")
 
-    # Accept either a 406 or any 2xx HTTP response as valid.
+    # Accept either a 406 (usage information) or any 2xx HTTP response as valid.
     if [[ "$http_code" == "406" || "${http_code:0:1}" == "2" ]]; then
         break  # Valid proxy found; exit loop.
     else
