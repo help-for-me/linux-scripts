@@ -5,7 +5,7 @@
 # This script performs the following actions:
 #
 # 1. Optionally runs apt-cacher-ng_mapper.sh to configure apt-cacher-ng.
-# 2. Ensures that jq (a JSON processor) is installed; if not, it uses a dialog prompt to offer installation.
+# 2. Ensures that jq (a JSON processor) is available; if not, it exits with an error.
 # 3. Ensures that dialog is installed (auto-installs it if missing) so that all interactive prompts use dialog.
 # 4. Fetches a list of shell scripts (.sh) from the GitHub repository
 #    https://github.com/help-for-me/linux-scripts (only from the repository's root),
@@ -64,20 +64,8 @@ clear
 # Step 1: Ensure that jq is installed.
 # --------------------------------------------------
 if ! command -v jq &>/dev/null; then
-    dialog --title "jq Installation" --yesno "This script requires jq (a JSON processor) to function.\nWithout jq, we cannot parse the repository contents.\n\nWould you like to install jq?" 10 60
-    response=$?
-    clear
-    if [ $response -eq 0 ]; then
-        dialog --title "Installing jq" --infobox "Installing jq..." 5 50
-        sudo apt update && sudo apt install jq -y
-        if ! command -v jq &>/dev/null; then
-            dialog --title "Error" --msgbox "Error: jq installation failed. Aborting." 8 40
-            exit 1
-        fi
-    else
-        dialog --title "jq Required" --msgbox "jq is required for this script. Aborting." 8 40
-        exit 1
-    fi
+    dialog --title "jq Not Found" --msgbox "Error: jq (a JSON processor) is required for this script but is not installed. Aborting." 8 50
+    exit 1
 fi
 clear
 
