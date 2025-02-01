@@ -134,15 +134,19 @@ chmod +x "$UPDATE_SCRIPT"
 # Confirm setup to the user.
 dialog --title "Automatic Updates Scheduled" --msgbox "System updates will run on the following schedule:\n\n📅 Days: $DAYS_SELECTED\n⏰ Time: $UPDATE_TIME\n\nA kernel update will trigger a safe reboot (after waiting for critical processes).\nA Discord notification will be sent with update details." 12 70
 
-# --- Send Discord notification with configuration summary ---
+# --- Prepare and send Discord notification with complete configuration summary ---
+HOSTNAME=$(hostname)
+IP=$(hostname -I | awk '{print $1}')
+
 CONFIG_SUMMARY="**Automatic System Update Configuration Applied**
+**Host:** $HOSTNAME
+**IP Address:** $IP
 **Days Selected:** $DAYS_SELECTED
 **Time:** $UPDATE_TIME
 **Cron Schedule:** $UPDATE_MINUTE $UPDATE_HOUR * * $CRON_DAYS
 **Update Script:** $UPDATE_SCRIPT
 **Log File:** $LOG_FILE"
 
-# Note: The Discord webhook expects JSON data. We use curl to post our summary.
 curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"${CONFIG_SUMMARY//\"/\\\"}\"}" "$WEBHOOK_URL" &>/dev/null
 
 clear
