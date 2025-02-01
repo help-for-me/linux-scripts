@@ -21,7 +21,6 @@ fi
 
 # --- Check if a scheduled update job already exists ---
 EXISTING_CRON=$(crontab -l 2>/dev/null | grep "$CRON_JOB_ID")
-
 if [[ -n "$EXISTING_CRON" ]]; then
   EXISTING_TIME=$(echo "$EXISTING_CRON" | awk '{print $2":"$1}')
   EXISTING_DAYS=$(echo "$EXISTING_CRON" | awk '{print $5}' | tr ',' ' ')
@@ -91,10 +90,9 @@ Summary: $SUMMARY
 Detailed log available on the system."
 
 # Send notification to Discord.
-curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"${DISCORD_MESSAGE//\"/\\\"}\"}" \"$WEBHOOK_URL\" &>/dev/null
+curl -s -H "Content-Type: application/json" -X POST -d "{\"content\": \"${DISCORD_MESSAGE//\"/\\\"}\"}" "$WEBHOOK_URL" &>/dev/null
 
 # Check if a kernel update occurred.
-# (This logic assumes that if the current running kernel image is not found among installed packages, then an update occurred.)
 if ! dpkg --list | grep -q "linux-image-$(uname -r)"; then
     echo "[$(date)] Kernel update detected. Checking for active processes before reboot..." | tee -a $LOG_FILE
 
@@ -108,14 +106,13 @@ if ! dpkg --list | grep -q "linux-image-$(uname -r)"; then
         return 0
     }
 
-    # Wait until critical processes finish.
     while ! check_critical_processes; do
         echo "[$(date)] Waiting for ongoing package operations to complete..." | tee -a $LOG_FILE
         sleep 60
     done
 
     REBOOT_MESSAGE="Kernel update detected on Host: $HOSTNAME (IP: $IP). System will reboot now after completing package operations."
-    curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"${REBOOT_MESSAGE//\"/\\\"}\"}" \"$WEBHOOK_URL\" &>/dev/null
+    curl -s -H "Content-Type: application/json" -X POST -d "{\"content\": \"${REBOOT_MESSAGE//\"/\\\"}\"}" "$WEBHOOK_URL" &>/dev/null
 
     echo "[$(date)] Rebooting system..." | tee -a $LOG_FILE
     reboot
@@ -147,7 +144,13 @@ CONFIG_SUMMARY="**Automatic System Update Configuration Applied**
 **Update Script:** $UPDATE_SCRIPT
 **Log File:** $LOG_FILE"
 
-curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"${CONFIG_SUMMARY//\"/\\\"}\"}" "$WEBHOOK_URL" &>/dev/null
+PAYLOAD="{\"content\": \"${CONFIG_SUMMARY//\"/\\\"}\"}"
+# Debug: Save the payload to a log file
+echo "$PAYLOAD" > /tmp/discord_payload.log
+
+# Send the notification and capture the response for debugging.
+RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$WEBHOOK_URL")
+echo "$RESPONSE" >> /tmp/discord_payload.log
 
 clear
 exit 0
