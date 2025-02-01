@@ -17,6 +17,9 @@ if [[ "$EUID" -ne 0 ]]; then
     exit 1
 fi
 
+# Display introduction.
+dialog --msgbox "APT Cacher NG Installer\n\nThis script will configure APT to use apt-cacher-ng as a proxy for HTTP downloads." 10 60
+
 # Ask the user if they want to update and upgrade packages.
 dialog --yesno "Would you like to update and upgrade your packages once everything is set up?" 8 60
 if [[ $? -eq 0 ]]; then
@@ -24,9 +27,6 @@ if [[ $? -eq 0 ]]; then
 else
     DO_UPGRADE=false
 fi
-
-# Display introduction.
-dialog --msgbox "APT Cacher NG Installer\n\nThis script will configure APT to use apt-cacher-ng as a proxy for HTTP downloads." 10 60
 
 # Function to test APT Cacher NG availability
 test_apt_cacher() {
