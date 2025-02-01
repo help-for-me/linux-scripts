@@ -6,10 +6,11 @@
 #
 # 1. Optionally runs apt-cacher-ng_mapper.sh to configure apt-cacher-ng.
 # 2. Checks if jq (a JSON processor) is installed; if not, prompts the user twice to install it.
-# 3. Fetches a list of shell scripts (.sh) from the GitHub repository
+# 3. (Optionally) ensures that dialog is installed so that a checklist can be used.
+# 4. Fetches a list of shell scripts (.sh) from the GitHub repository
 #    https://github.com/help-for-me/linux-scripts (only from the repository's root),
 #    excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
-# 4. Displays a menu of the remaining scripts and allows the user to select one or more scripts to run.
+# 5. Displays a checklist of the remaining scripts and allows the user to select one or more scripts to run.
 #
 # Usage:
 #   bash run-all-scripts.sh
@@ -66,6 +67,22 @@ if ! command -v jq &>/dev/null; then
 fi
 
 # --------------------------------------------------
+# Step 1.5: Ensure that dialog is installed (optional).
+# --------------------------------------------------
+if ! command -v dialog &>/dev/null; then
+    read -p "The script uses 'dialog' for interactive selection, which is not installed. Would you like to install it? (Y/n): " install_dialog
+    if [[ -z "$install_dialog" || "$install_dialog" =~ ^[Yy]$ ]]; then
+        echo "Installing dialog..."
+        sudo apt update && sudo apt install dialog -y
+        if ! command -v dialog &>/dev/null; then
+            echo "Error: dialog installation failed. Falling back to text-based selection."
+        fi
+    else
+        echo "dialog is not installed. Falling back to text-based selection."
+    fi
+fi
+
+# --------------------------------------------------
 # Step 2: Fetch repository contents from GitHub.
 # --------------------------------------------------
 REPO_API_URL="https://api.github.com/repos/help-for-me/linux-scripts/contents"
@@ -79,7 +96,7 @@ fi
 # --------------------------------------------------
 # Step 3: Process repository contents.
 # --------------------------------------------------
-# Prepare associative arrays to store selectable scripts.
+# We'll store selectable scripts using associative arrays.
 declare -A script_names
 declare -A script_urls
 index=1
@@ -113,20 +130,38 @@ if [ ${#script_names[@]} -eq 0 ]; then
     exit 0
 fi
 
-echo "Available shell scripts:"
-for i in "${!script_names[@]}"; do
-    echo "  [$i] ${script_names[$i]}"
-done
+# Use dialog if available; otherwise, fallback to text input.
+if command -v dialog &>/dev/null; then
+    # Prepare the checklist items.
+    list_count=${#script_names[@]}
+    cmd=(dialog --clear --stdout --checklist "Select the scripts to run:" 15 50 "$list_count")
+    # Loop over keys in numerical order.
+    for key in $(echo "${!script_names[@]}" | tr ' ' '\n' | sort -n); do
+        cmd+=("$key" "${script_names[$key]}" "off")
+    done
 
-echo
-read -p "Enter the number(s) of the script(s) you want to run (e.g., 1 3 5): " selection
-selected=($selection)
+    selections=$("${cmd[@]}")
+    ret_code=$?
+    # Clear the dialog from the screen.
+    clear
+    if [ $ret_code -ne 0 ] || [ -z "$selections" ]; then
+        echo "No scripts selected. Exiting."
+        exit 0
+    fi
 
-if [ ${#selected[@]} -eq 0 ]; then
-    echo "No scripts selected. Exiting."
-    exit 0
+    # The selections are returned as a space-separated list of keys.
+    selected=($selections)
+else
+    echo "Available shell scripts:"
+    for key in $(echo "${!script_names[@]}" | tr ' ' '\n' | sort -n); do
+        echo "  [$key] ${script_names[$key]}"
+    done
+    echo
+    read -p "Enter the number(s) of the script(s) you want to run (e.g., 1 3 5): " selection
+    selected=($selection)
 fi
 
+# Execute each selected script.
 for num in "${selected[@]}"; do
     if [[ -z "${script_names[$num]}" ]]; then
         echo "Invalid selection: $num. Skipping."
