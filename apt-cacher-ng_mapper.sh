@@ -3,17 +3,8 @@
 # install-apt-cacher-dialog.sh
 #
 # This script configures APT to use apt-cacher-ng as a proxy for HTTP downloads.
-# It uses dialog boxes to interact with the user.
-#
-# It will:
-#   - Ask if you want to update/upgrade packages.
-#   - Prompt for the IP address of your apt-cacher-ng server.
-#       * If left blank, the installer aborts.
-#       * If the IP is in an unexpected format, it warns you.
-#       * It then tests connectivity (using netcat, if available).
-#         If the test fails, it loops back to ask for the IP again.
-#   - Backup/create the APT configuration file and write the proxy configuration.
-#   - Optionally update and upgrade packages.
+# It checks if the provided IP address has an apt-cacher-ng server running.
+# If the server is unreachable, it asks the user to enter a new IP or abort.
 #
 # Usage (as root):
 #   sudo ./install-apt-cacher-dialog.sh
@@ -27,7 +18,7 @@ if [[ "$EUID" -ne 0 ]]; then
 fi
 
 # Ask the user if they want to update and upgrade packages.
-dialog --yesno "We'll set up apt-cacher-ng. Would you like to update and upgrade your packages once everything is set up?" 8 60
+dialog --yesno "Would you like to update and upgrade your packages once everything is set up?" 8 60
 if [[ $? -eq 0 ]]; then
     DO_UPGRADE=true
 else
@@ -36,6 +27,16 @@ fi
 
 # Display introduction.
 dialog --msgbox "APT Cacher NG Installer\n\nThis script will configure APT to use apt-cacher-ng as a proxy for HTTP downloads." 10 60
+
+# Function to test APT Cacher NG availability
+test_apt_cacher() {
+    if command -v nc &>/dev/null; then
+        if nc -z "$1" 3142; then
+            return 0
+        fi
+    fi
+    return 1
+}
 
 # Loop until a valid IP is provided or the user aborts.
 while true; do
@@ -49,27 +50,28 @@ while true; do
         exit 1
     fi
 
-    # Optional: Validate the IP address format.
+    # Validate the IP address format.
     if [[ ! "$APTCACHER_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
         dialog --yesno "Warning: The entered IP address does not match a typical IPv4 format.\n\nDo you want to continue anyway?" 8 60
-        # If the user chooses "No", loop back for a new input.
         if [[ $? -ne 0 ]]; then
             continue
         fi
     fi
 
-    # Test connectivity to the apt-cacher-ng proxy (if netcat is installed).
-    if command -v nc &>/dev/null; then
-        if nc -z "$APTCACHER_IP" 3142; then
-            dialog --msgbox "Successfully connected to apt-cacher-ng on $APTCACHER_IP:3142." 6 60
-            break
-        else
-            dialog --msgbox "Could not connect to apt-cacher-ng on $APTCACHER_IP:3142.\n\nPlease ensure that the proxy is running and reachable. Try entering the IP address again." 8 60
-        fi
-    else
-        dialog --msgbox "Netcat (nc) is not installed. Skipping connectivity test." 6 60
+    # Test connectivity to the apt-cacher-ng proxy.
+    if test_apt_cacher "$APTCACHER_IP"; then
+        dialog --msgbox "Successfully connected to apt-cacher-ng on $APTCACHER_IP:3142." 6 60
         break
+    else
+        dialog --yesno "Could not connect to apt-cacher-ng on $APTCACHER_IP:3142.\n\nWould you like to enter a new IP address? Selecting 'No' will abort and remove all configurations." 8 60
+        if [[ $? -ne 0 ]]; then
+            dialog --msgbox "Aborting installation. Removing all configurations." 6 40
+            rm -f /etc/apt/apt.conf.d/01apt-cacher-ng
+            clear
+            exit 1
+        fi
     fi
+
 done
 
 # Define the target APT configuration file.
