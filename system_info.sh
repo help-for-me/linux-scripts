@@ -3,8 +3,8 @@
 
 # Ensure `dialog` is installed
 if ! command -v dialog &> /dev/null; then
-echo "'dialog' is not installed. Installing dialog..."
-apt-get update && apt-get install -y dialog
+  echo "'dialog' is not installed. Installing dialog..."
+  apt-get update && apt-get install -y dialog
 fi
 
 # Get CPU details
@@ -32,26 +32,26 @@ UPTIME_INFO=$(uptime -p | sed 's/up //')
 
 # Get GPU information (if available)
 if command -v lspci &> /dev/null; then
-GPU_INFO=$(lspci | grep -i "VGA" | awk -F': ' '{print $2}')
+  GPU_INFO=$(lspci | grep -i "VGA" | awk -F': ' '{print $2}')
 else
-GPU_INFO="Not available"
+  GPU_INFO="Not available"
 fi
 
 # Get Temperature Sensors (if available)
 if command -v sensors &> /dev/null; then
-TEMP_INFO=$(sensors | grep -E "Core|temp" | awk '{$1=$1};1')
+  TEMP_INFO=$(sensors | grep -E "Core|temp" | awk '{$1=$1};1')
 else
-TEMP_INFO="Temperature sensors not available"
+  TEMP_INFO="Temperature sensors not available"
 fi
 
 # Get Network Link Speeds
 INTERFACES=$(ip -o link show | awk -F': ' '{print $2}')
 LINK_SPEEDS=""
 for iface in $INTERFACES; do
-if ethtool "$iface" &>/dev/null; then
-SPEED=$(ethtool "$iface" | grep "Speed" | awk -F': ' '{print $2}')
-LINK_SPEEDS+="$iface: ${SPEED:-Unknown}\n"
-fi
+  if ethtool "$iface" &>/dev/null; then
+    SPEED=$(ethtool "$iface" | grep "Speed" | awk -F': ' '{print $2}')
+    LINK_SPEEDS+="$iface: ${SPEED:-Unknown}\n"
+  fi
 done
 
 # Get DNS Servers
@@ -60,14 +60,14 @@ DNS_SERVERS=$(grep "nameserver" /etc/resolv.conf | awk '{print $2}')
 # Get Wi-Fi SSID & Signal Strength (if connected via Wi-Fi)
 WIFI_INFO=""
 if command -v iwconfig &> /dev/null; then
-WIFI_INTERFACE=$(iwconfig 2>/dev/null | grep "ESSID" | awk '{print $1}')
-if [[ -n "$WIFI_INTERFACE" ]]; then
-WIFI_SSID=$(iwconfig "$WIFI_INTERFACE" | grep "ESSID" | awk -F'"' '{print $2}')
-WIFI_SIGNAL=$(iwconfig "$WIFI_INTERFACE" | grep -o "Signal level=.*" | awk '{print $3}')
-WIFI_INFO="SSID: ${WIFI_SSID:-Unknown}\nSignal Strength: ${WIFI_SIGNAL:-Unknown}"
-else
-WIFI_INFO="No Wi-Fi connection detected"
-fi
+  WIFI_INTERFACE=$(iwconfig 2>/dev/null | grep "ESSID" | awk '{print $1}')
+  if [[ -n "$WIFI_INTERFACE" ]]; then
+    WIFI_SSID=$(iwconfig "$WIFI_INTERFACE" | grep "ESSID" | awk -F'"' '{print $2}')
+    WIFI_SIGNAL=$(iwconfig "$WIFI_INTERFACE" | grep -o "Signal level=.*" | awk '{print $3}')
+    WIFI_INFO="SSID: ${WIFI_SSID:-Unknown}\nSignal Strength: ${WIFI_SIGNAL:-Unknown}"
+  else
+    WIFI_INFO="No Wi-Fi connection detected"
+  fi
 fi
 
 # Format information for dialog box
@@ -120,6 +120,16 @@ $TEMP_INFO
 
 # Display system information
 dialog --title "System Information" --msgbox "$INFO_TEXT" 35 90
+
+# Export system information to Discord
+# Set your Discord webhook URL
+WEBHOOK_URL="https://discord.com/api/webhooks/1335160467705827418/p8CV3AhYQeTK0PHh9iCQ2sIA5KrDlwi6_RM4CCHoj71qeO_aAlP3WX3y-Et9nDgr2jXs"
+
+# Construct JSON payload using echo -e (to interpret \n) and sed to escape double quotes
+PAYLOAD="{\"content\": \"$(echo -e "$INFO_TEXT" | sed 's/"/\\"/g')\"}"
+
+# Send the payload to Discord using curl
+curl -s -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$WEBHOOK_URL" &>/dev/null
 
 clear
 exit 0
