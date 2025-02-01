@@ -4,40 +4,43 @@
 #
 # This script performs the following actions:
 #
-# 1. Optionally runs apt-cacher-ng_mapper.sh to configure apt-cacher-ng.
-# 2. Ensures that jq (a JSON processor) is installed; if not, it uses a dialog prompt to offer installation.
-# 3. Ensures that dialog is installed (auto-installs it if missing) so that all interactive prompts use dialog.
-# 4. Fetches a list of shell scripts (.sh) from the GitHub repository
-#    https://github.com/help-for-me/linux-scripts (only from the repository's root),
-#    excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
-# 5. Displays a dialog checklist of the remaining scripts and allows the user to select one or more to run.
+# 1. Runs apt-cacher-ng_mapper.sh first (if user agrees).
+# 2. Ensures `curl` and `jq` are installed.
+# 3. Fetches shell scripts from GitHub and presents a `dialog` selection UI.
+# 4. Executes the selected scripts, logging output and handling errors.
 #
 # Usage:
 #   sudo bash run-all-scripts.sh
+#
+
+LOCK_FILE="/tmp/run-all-scripts.lock"
+TEMP_DIR=$(mktemp -d)  # Create a temp directory for downloaded scripts
+LOG_FILE="/var/log/run-all-scripts.log"
 
 # --------------------------------------------------
-# Prevent recursion: if this script is re-invoked, exit immediately.
+# Prevent multiple instances
 # --------------------------------------------------
-if [ "$RUN_ALL_SCRIPTS_RAN" == "1" ]; then
-    exit 0
+if [ -f "$LOCK_FILE" ]; then
+    dialog --title "Error" --msgbox "Another instance of this script is already running. Exiting." 7 50
+    exit 1
 fi
-export RUN_ALL_SCRIPTS_RAN=1
+touch "$LOCK_FILE"
+trap "rm -f $LOCK_FILE; rm -rf $TEMP_DIR" EXIT  # Cleanup on exit
 
 # --------------------------------------------------
-# Preliminary: Ensure that 'dialog' is installed (auto-install if missing)
+# Ensure curl is installed
 # --------------------------------------------------
-if ! command -v dialog &>/dev/null; then
-    echo "Dialog is not installed. Installing dialog..."
-    sudo apt update && sudo apt install dialog -y
-    if ! command -v dialog &>/dev/null; then
-        echo "Error: dialog installation failed. Exiting."
+if ! command -v curl &>/dev/null; then
+    echo "curl is missing. Installing it now..."
+    sudo apt update && sudo apt install curl -y
+    if ! command -v curl &>/dev/null; then
+        dialog --title "Error" --msgbox "Failed to install curl. Aborting." 7 50
         exit 1
     fi
 fi
 
 # --------------------------------------------------
-# Step 0: Optionally run apt-cacher-ng_mapper.sh using dialog.
-#         Use a flag file to prevent re-running this section.
+# Step 1: Run apt-cacher-ng_mapper.sh first
 # --------------------------------------------------
 APT_MAPPER_URL="https://raw.githubusercontent.com/help-for-me/linux-scripts/refs/heads/main/apt-cacher-ng_mapper.sh"
 APT_MAPPER_FLAG="/tmp/apt_mapper_ran"
@@ -47,67 +50,67 @@ if [ ! -f "$APT_MAPPER_FLAG" ]; then
     response=$?
     clear
     if [ $response -eq 0 ]; then
-        dialog --title "Running Mapper" --infobox "Attempting to run apt-cacher-ng_mapper.sh..." 5 50
+        dialog --title "Running Mapper" --infobox "Configuring apt-cacher-ng..." 5 50
         if curl -s --head --fail "$APT_MAPPER_URL" > /dev/null; then
-            # Download to a temporary file and run it.
             temp_file=$(mktemp)
             curl -sSL "$APT_MAPPER_URL" -o "$temp_file"
             bash "$temp_file"
             rm -f "$temp_file"
-            # Create a flag file to indicate the mapper has been run.
             touch "$APT_MAPPER_FLAG"
-            dialog --title "Mapper Finished" --msgbox "Finished running apt-cacher-ng_mapper.sh." 7 50
+            dialog --title "Success" --msgbox "APT Cacher NG is configured!" 7 50
         else
-            dialog --title "Error" --msgbox "apt-cacher-ng_mapper.sh not found at $APT_MAPPER_URL. Skipping..." 7 50
+            dialog --title "Error" --msgbox "Could not download apt-cacher-ng_mapper.sh. Skipping..." 7 50
         fi
     else
-        dialog --title "Skipped" --msgbox "Skipping apt-cacher-ng_mapper.sh as per user request." 7 50
+        dialog --title "Skipped" --msgbox "Skipping apt-cacher-ng_mapper.sh." 7 50
     fi
     clear
 fi
 
 # --------------------------------------------------
-# Step 1: Ensure that jq is installed.
+# Step 2: Ensure jq is installed
 # --------------------------------------------------
 if ! command -v jq &>/dev/null; then
-    dialog --title "jq Installation" --yesno "This script requires jq (a JSON processor) to function.\nWithout jq, we cannot parse the repository contents.\n\nWould you like to install jq?" 10 60
+    dialog --title "jq Installation" --yesno "This script requires jq (a JSON processor).\nInstall jq now?" 10 50
     response=$?
     clear
     if [ $response -eq 0 ]; then
-        dialog --title "Installing jq" --infobox "Installing jq..." 5 50
         sudo apt update && sudo apt install jq -y
         if ! command -v jq &>/dev/null; then
-            dialog --title "Error" --msgbox "Error: jq installation failed. Aborting." 8 40
+            dialog --title "Error" --msgbox "Failed to install jq. Aborting." 8 50
             exit 1
         fi
     else
-        dialog --title "jq Required" --msgbox "jq is required for this script. Aborting." 8 40
+        dialog --title "jq Required" --msgbox "jq is required for this script. Aborting." 8 50
         exit 1
     fi
 fi
 clear
 
 # --------------------------------------------------
-# Step 2: Fetch repository contents from GitHub.
+# Step 3: Fetch Repository Scripts from GitHub
 # --------------------------------------------------
 REPO_API_URL="https://api.github.com/repos/help-for-me/linux-scripts/contents"
-dialog --title "Fetching Scripts" --infobox "Fetching list of shell scripts from the repository..." 5 60
-RESPONSE=$(curl -sSL "$REPO_API_URL")
-if [ -z "$RESPONSE" ]; then
-    dialog --title "Error" --msgbox "Error: Could not fetch repository information." 8 50
+dialog --title "Fetching Scripts" --infobox "Fetching script list from GitHub..." 5 60
+
+RESPONSE=$(curl -sSL --fail "$REPO_API_URL")
+if [ $? -ne 0 ] || [ -z "$RESPONSE" ]; then
+    dialog --title "Error" --msgbox "Could not fetch scripts.\nPossible reasons:\n- Network issue\n- GitHub API rate limit exceeded\n\nTry again later." 10 60
     exit 1
 fi
 clear
 
 # --------------------------------------------------
-# Step 3: Process repository contents.
+# Step 4: Process Repository Contents
 # --------------------------------------------------
 declare -A script_names
 declare -A script_urls
-index=1
 
-# Get files ending with .sh, excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
-SCRIPTS=$(echo "$RESPONSE" | jq -r '.[] | select(.type=="file") | select(.name|endswith(".sh")) | "\(.name) \(.download_url)"')
+SCRIPTS=$(echo "$RESPONSE" | jq -r 'try .[] | select(.type=="file") | select(.name|endswith(".sh")) | "\(.name) \(.download_url)"' 2>/dev/null)
+if [ -z "$SCRIPTS" ]; then
+    dialog --title "Error" --msgbox "Failed to retrieve scripts from GitHub.\nTry again later." 10 50
+    exit 1
+fi
 
 while IFS= read -r line; do
     script_name=$(echo "$line" | awk '{print $1}')
@@ -117,48 +120,58 @@ while IFS= read -r line; do
         continue
     fi
     
-    script_names[$index]="$script_name"
-    script_urls[$index]="$script_url"
-    ((index++))
+    script_names["$script_name"]="$script_name"
+    script_urls["$script_name"]="$script_url"
 done <<< "$SCRIPTS"
 
 # --------------------------------------------------
-# Step 4: Display and execute the remaining scripts.
+# Step 5: Select Scripts to Run
 # --------------------------------------------------
-if [ ${#script_names[@]} -eq 0 ]; then
-    dialog --title "No Scripts Found" --msgbox "No additional shell scripts found to run." 7 50
-    exit 0
-fi
+cmd=(dialog --clear --stdout --title "Select Scripts to Run" \
+    --checklist "Use [SPACE] to select scripts. Press [ENTER] to confirm." 20 70 15)
 
-# Build checklist options for dialog.
-list_count=${#script_names[@]}
-# Add --extra-button and --extra-label "Exit" to allow exiting directly.
-cmd=(dialog --clear --stdout --extra-button --extra-label "Exit" --checklist "Select the scripts to run:" 15 50 "$list_count")
-for key in $(echo "${!script_names[@]}" | tr ' ' '\n' | sort -n); do
-    cmd+=("$key" "${script_names[$key]}" "off")
+for script_name in "${!script_names[@]}"; do
+    cmd+=("$script_name" "" "off")
 done
 
 selections=$("${cmd[@]}")
 ret_code=$?
 clear
 
-# If the user pressed the extra button, exit.
-if [ $ret_code -eq 3 ]; then
-    dialog --title "Exit Selected" --msgbox "Exiting without running any scripts." 7 50
-    clear
+if [ $ret_code -eq 1 ] || [ -z "$selections" ]; then
+    dialog --title "Exit" --msgbox "No scripts selected. Exiting." 7 50
     exit 0
 fi
-
-if [ $ret_code -ne 0 ] || [ -z "$selections" ]; then
-    dialog --title "No Selection" --msgbox "No scripts selected. Exiting." 7 50
-    exit 0
-fi
-
 selected=($selections)
 
-for num in "${selected[@]}"; do
-    if [[ -z "${script_names[$num]}" ]]; then
-        dialog --title "Invalid Selection" --msgbox "Invalid selection: $num. Skipping." 7 50
+# --------------------------------------------------
+# Step 6: Execute Selected Scripts
+# --------------------------------------------------
+for script_name in "${selected[@]}"; do
+    script_url="${script_urls[$script_name]}"
+    dialog --title "Running Script" --infobox "Downloading and executing $script_name..." 5 50
+
+    script_path="$TEMP_DIR/$script_name"
+    curl -sSL "$script_url" -o "$script_path"
+
+    if [ ! -f "$script_path" ]; then
+        dialog --title "Error" --msgbox "Failed to download $script_name. Skipping." 7 50
+        echo "$(date): ERROR - Failed to download $script_name" >> "$LOG_FILE"
         continue
     fi
-    dialog --title "Running Script" --infobox "Running scr
+
+    chmod +x "$script_path"
+    output=$("$script_path" 2>&1)
+    exit_code=$?
+
+    echo "$(date): Executed $script_name (Exit Code: $exit_code)" >> "$LOG_FILE"
+    echo "$output" >> "$LOG_FILE"
+
+    if [ $exit_code -eq 0 ]; then
+        dialog --title "Success" --msgbox "$script_name ran successfully." 7 50
+    else
+        dialog --title "Error" --msgbox "Error running $script_name.\nCheck $LOG_FILE for details." 7 50
+    fi
+done
+
+dialog --title "Complete" --msgbox "All selected scripts have finished running!" 7 50
