@@ -69,23 +69,24 @@ fi
 # --------------------------------------------------
 # Step 1: Ensure that jq is installed.
 # --------------------------------------------------
-if ! command -v jq &>/dev/null; then
-    dialog --title "jq Installation" --yesno "This script requires jq (a JSON processor) to function.\nWithout jq, we cannot parse the repository contents.\n\nWould you like to install jq?" 10 60
-    response=$?
-    clear
-    if [ $response -eq 0 ]; then
-        dialog --title "Installing jq" --infobox "Installing jq..." 5 50
-        sudo apt update && sudo apt install jq -y
-        if ! command -v jq &>/dev/null; then
-            dialog --title "Error" --msgbox "Error: jq installation failed. Aborting." 8 40
-            exit 1
-        fi
-    else
-        dialog --title "jq Required" --msgbox "jq is required for this script. Aborting." 8 40
-        exit 1
-    fi
-fi
-clear
+#if ! command -v jq &>/dev/null; then
+#    dialog --title "jq Installation" --yesno "This script requires jq (a JSON processor) to function.\nWithout jq, we cannot parse the repository contents.\n\nWould you like to install jq?" 10 60
+#    response=$?
+#    clear
+#    if [ $response -eq 0 ]; then
+#        dialog --title "Installing jq" --infobox "Installing jq..." 5 50
+#        sudo apt update && sudo apt install jq -y
+#        if ! command -v jq &>/dev/null; then
+#            dialog --title "Error" --msgbox "Error: jq installation failed. Aborting." 8 40
+#            exit 1
+#        fi
+#    else
+#        dialog --title "jq Required" --msgbox "jq is required for this script. Aborting." 8 40
+#        exit 1
+#    fi
+#fi
+#clear
+sudo apt update && sudo apt install jq -y
 
 # --------------------------------------------------
 # Step 2: Fetch repository contents from GitHub.
