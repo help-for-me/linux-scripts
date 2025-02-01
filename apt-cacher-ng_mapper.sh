@@ -3,7 +3,8 @@
 # This script configures APT to use an apt-cacher-ng proxy.
 # It prompts for the proxy IP address (optionally with port).
 # If no port is specified, the script uses the default port 3142.
-# Before applying the configuration, it verifies that the server is reachable.
+# Before applying the configuration, it verifies that the server is reachable
+# by accepting either a 406 (usage information) or any 2xx HTTP response.
 
 # Check if 'dialog' is installed
 if ! command -v dialog &>/dev/null; then
@@ -50,10 +51,15 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Verify that the apt-cacher-ng server is reachable by checking for a valid HTTP response
+# Verify that the apt-cacher-ng server is reachable by checking for a valid HTTP response.
+# We accept either a 406 (the expected usage page response) or any 2xx response.
 check_url="http://${proxy}/"
 http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$check_url")
-if [ "$http_code" != "200" ]; then
+
+# For debugging, you could uncomment the next line:
+# echo "Received HTTP code: $http_code"
+
+if [[ "$http_code" != "406" && "${http_code:0:1}" != "2" ]]; then
     echo "Error: Could not connect to apt-cacher-ng server at ${check_url}."
     echo "Received HTTP status code: ${http_code}. Please verify the IP address and port, then try again."
     exit 1
