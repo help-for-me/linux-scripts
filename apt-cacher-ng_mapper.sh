@@ -30,11 +30,27 @@ fi
 
 # Function to test APT Cacher NG availability
 test_apt_cacher() {
+    local ip=$1
+    echo "Testing connection to APT Cacher NG at $ip:3142..." >&2
+    
     if command -v nc &>/dev/null; then
-        if nc -z "$1" 3142; then
+        if nc -z -w3 "$ip" 3142; then
+            echo "Connection successful using nc." >&2
             return 0
+        else
+            echo "Connection failed using nc." >&2
         fi
     fi
+    
+    if command -v curl &>/dev/null; then
+        if curl -s --head "http://$ip:3142/" | grep -q "200 OK"; then
+            echo "Connection successful using curl." >&2
+            return 0
+        else
+            echo "Connection failed using curl." >&2
+        fi
+    fi
+    
     return 1
 }
 
