@@ -69,23 +69,6 @@ fi
 # --------------------------------------------------
 # Step 1: Ensure that jq is installed.
 # --------------------------------------------------
-#if ! command -v jq &>/dev/null; then
-#    dialog --title "jq Installation" --yesno "This script requires jq (a JSON processor) to function.\nWithout jq, we cannot parse the repository contents.\n\nWould you like to install jq?" 10 60
-#    response=$?
-#    clear
-#    if [ $response -eq 0 ]; then
-#        dialog --title "Installing jq" --infobox "Installing jq..." 5 50
-#        sudo apt update && sudo apt install jq -y
-#        if ! command -v jq &>/dev/null; then
-#            dialog --title "Error" --msgbox "Error: jq installation failed. Aborting." 8 40
-#            exit 1
-#        fi
-#    else
-#        dialog --title "jq Required" --msgbox "jq is required for this script. Aborting." 8 40
-#        exit 1
-#    fi
-#fi
-#clear
 sudo apt update && sudo apt install jq -y
 
 # --------------------------------------------------
@@ -155,6 +138,9 @@ if [ $ret_code -ne 0 ] || [ -z "$selections" ]; then
     exit 0
 fi
 
+# --------------------------------------------------
+# Step 5: Run the selected scripts.
+# --------------------------------------------------
 selected=($selections)
 
 for num in "${selected[@]}"; do
@@ -162,4 +148,27 @@ for num in "${selected[@]}"; do
         dialog --title "Invalid Selection" --msgbox "Invalid selection: $num. Skipping." 7 50
         continue
     fi
-    dialog --title "Running Script" --infobox "Running scr
+    # Inform the user which script is running.
+    dialog --title "Running Script" --infobox "Running script ${script_names[$num]}..." 5 50
+    sleep 2  # Optional pause so the user can read the message.
+    
+    # Download the script to a temporary file.
+    temp_file=$(mktemp)
+    curl -sSL "${script_urls[$num]}" -o "$temp_file"
+    
+    if [ ! -s "$temp_file" ]; then
+        dialog --title "Download Error" --msgbox "Failed to download ${script_names[$num]}. Skipping." 7 50
+        rm -f "$temp_file"
+        continue
+    fi
+    
+    # Make the script executable and run it.
+    chmod +x "$temp_file"
+    bash "$temp_file"
+    
+    # Remove the temporary file after execution.
+    rm -f "$temp_file"
+done
+
+dialog --title "All Done" --msgbox "Finished running the selected scripts." 7 50
+clear
