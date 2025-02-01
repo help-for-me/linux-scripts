@@ -43,14 +43,25 @@ test_apt_cacher() {
     fi
     
     if command -v curl &>/dev/null; then
-        if curl -s --head "http://$ip:3142/" | grep -q "200 OK"; then
-            echo "Connection successful using curl." >&2
+        RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "http://$ip:3142/")
+        if [[ "$RESPONSE" == "200" || "$RESPONSE" == "406" ]]; then
+            echo "Connection successful using curl (HTTP response: $RESPONSE)." >&2
             return 0
         else
-            echo "Connection failed using curl." >&2
+            echo "Connection failed using curl (HTTP response: $RESPONSE)." >&2
         fi
     fi
     
+    if command -v telnet &>/dev/null; then
+        if echo "quit" | telnet "$ip" 3142 2>&1 | grep -q "Connected"; then
+            echo "Connection successful using telnet." >&2
+            return 0
+        else
+            echo "Connection failed using telnet." >&2
+        fi
+    fi
+    
+    echo "APT Cacher NG is unreachable. Please check if the service is running and the firewall is open on port 3142." >&2
     return 1
 }
 
