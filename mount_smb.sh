@@ -1,87 +1,157 @@
 #!/bin/bash
-# mount_smb_dialog.sh
 #
-# This script automates the installation of CIFS utilities, configuration of SMB shares,
-# creation of a credentials file, updating /etc/fstab, and mounting of the shares using dialog boxes.
+# run-all-scripts.sh
 #
-# It will prompt for:
-#   - SMB username and password (used for all shares)
-#   - The number of SMB shares to configure
-#   - The server IP address
-#   - For each share: the share location on the server and the local mount point.
+# This script performs the following actions:
 #
-# The script must be run as root.
-# Example usage: sudo ./mount_smb_dialog.sh
+# 1. Optionally runs apt-cacher-ng_mapper.sh to configure apt-cacher-ng.
+# 2. Ensures that jq (a JSON processor) is installed; if not, it uses a dialog prompt to offer installation.
+# 3. Ensures that dialog is installed (auto-installs it if missing) so that all interactive prompts use dialog.
+# 4. Fetches a list of shell scripts (.sh) from the GitHub repository
+#    https://github.com/help-for-me/linux-scripts (only from the repository's root),
+#    excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
+# 5. Displays a dialog checklist of the remaining scripts and allows the user to select one or more to run.
+#
+# Usage:
+#   sudo bash run-all-scripts.sh
 
-# Ensure the script is run as root
-if [ "$(id -u)" -ne 0 ]; then
-    dialog --msgbox "Error: This script must be run as root (e.g. using sudo)." 8 40
-    exit 1
+# --------------------------------------------------
+# Prevent recursion: if this script is re-invoked, exit immediately.
+# --------------------------------------------------
+if [ "$RUN_ALL_SCRIPTS_RAN" == "1" ]; then
+    exit 0
+fi
+export RUN_ALL_SCRIPTS_RAN=1
+
+# --------------------------------------------------
+# Preliminary: Ensure that 'dialog' is installed (auto-install if missing)
+# --------------------------------------------------
+if ! command -v dialog &>/dev/null; then
+    echo "Dialog is not installed. Installing dialog..."
+    sudo apt update && sudo apt install dialog -y
+    if ! command -v dialog &>/dev/null; then
+        echo "Error: dialog installation failed. Exiting."
+        exit 1
+    fi
 fi
 
-# Update package list and install required packages
-apt update && apt install -y cifs-utils dialog
+# --------------------------------------------------
+# Step 0: Ask the user if they want to run apt-cacher-ng_mapper.sh using dialog.
+# --------------------------------------------------
+APT_MAPPER_URL="https://raw.githubusercontent.com/help-for-me/linux-scripts/refs/heads/main/apt-cacher-ng_mapper.sh"
 
-# Prompt for SMB credentials
-smb_user=$(dialog --stdout --inputbox "Enter SMB username:" 8 40)
-smb_pass=$(dialog --stdout --passwordbox "Enter SMB password:" 8 40)
-
-# Create the credentials file
-cred_file="/etc/credentials"
-cat <<EOF > "$cred_file"
-username=${smb_user}
-password=${smb_pass}
-EOF
-chmod 600 "$cred_file"
-
-# Ask for the number of SMB shares to configure
-num_shares=$(dialog --stdout --inputbox "Enter the number of SMB shares to configure:" 8 40)
-
-# Ask for the server IP address (to be used for all shares)
-server_ip=$(dialog --stdout --inputbox "Enter the IP address of the server:" 8 40)
-
-# Backup /etc/fstab before modifying
-cp /etc/fstab /etc/fstab.bak
-
-# Declare an array to store mount points for later verification
-declare -a mount_points
-
-# Loop for each share configuration
-for (( i=1; i<=num_shares; i++ )); do
-    share_location=$(dialog --stdout --inputbox "Share #$i: Enter the share location (the name of the share on the server):" 8 50)
-    mount_point=$(dialog --stdout --inputbox "Share #$i: Enter the local mount point (e.g. /mnt/share):" 8 50)
-    
-    # Combine server IP and share location to form the complete SMB share path
-    smb_share="//${server_ip}/${share_location}"
-    
-    # Save the mount point in the array for later verification
-    mount_points[i]="$mount_point"
-    
-    # Create the mount point directory if it doesn't exist
-    mkdir -p "$mount_point"
-    
-    # Build the fstab entry with the given options
-    fstab_entry="${smb_share} ${mount_point} cifs credentials=${cred_file},uid=1000,gid=1000,iocharset=utf8,vers=3.0 0 0"
-    echo "$fstab_entry" >> /etc/fstab
-done
-
-# Reload systemd configuration
-systemctl daemon-reload
-
-# Mount all filesystems defined in /etc/fstab
-mount -a
-
-# Build a summary message with the mounted filesystems
-msg="Verifying mounted filesystems:\n\n"
-for (( i=1; i<=num_shares; i++ )); do
-    msg+="Mount point: ${mount_points[i]}\n"
-    msg+="$(df -h ${mount_points[i]})\n"
-    msg+="-------------------------\n"
-done
-
-# Display the summary in a dialog message box
-dialog --msgbox "$msg" 20 70
-
-# Clear the dialog artifacts from the screen
+dialog --title "APT Cacher NG Mapper" --yesno "Would you like to run apt-cacher-ng_mapper.sh to configure apt-cacher-ng?" 7 60
+response=$?
 clear
-echo "Script execution completed."
+if [ $response -eq 0 ]; then
+    dialog --title "Running Mapper" --infobox "Attempting to run apt-cacher-ng_mapper.sh..." 5 50
+    if curl -s --head --fail "$APT_MAPPER_URL" > /dev/null; then
+        # Download to a temporary file and run it.
+        temp_file=$(mktemp)
+        curl -sSL "$APT_MAPPER_URL" -o "$temp_file"
+        bash "$temp_file"
+        rm -f "$temp_file"
+        dialog --title "Mapper Finished" --msgbox "Finished running apt-cacher-ng_mapper.sh." 7 50
+    else
+        dialog --title "Error" --msgbox "apt-cacher-ng_mapper.sh not found at $APT_MAPPER_URL. Skipping..." 7 50
+    fi
+else
+    dialog --title "Skipped" --msgbox "Skipping apt-cacher-ng_mapper.sh as per user request." 7 50
+fi
+clear
+
+# --------------------------------------------------
+# Step 1: Ensure that jq is installed.
+# --------------------------------------------------
+if ! command -v jq &>/dev/null; then
+    dialog --title "jq Installation" --yesno "This script requires jq (a JSON processor) to function.\nWithout jq, we cannot parse the repository contents.\n\nWould you like to install jq?" 10 60
+    response=$?
+    clear
+    if [ $response -eq 0 ]; then
+        dialog --title "Installing jq" --infobox "Installing jq..." 5 50
+        sudo apt update && sudo apt install jq -y
+        if ! command -v jq &>/dev/null; then
+            dialog --title "Error" --msgbox "Error: jq installation failed. Aborting." 8 40
+            exit 1
+        fi
+    else
+        dialog --title "jq Required" --msgbox "jq is required for this script. Aborting." 8 40
+        exit 1
+    fi
+fi
+clear
+
+# --------------------------------------------------
+# Step 2: Fetch repository contents from GitHub.
+# --------------------------------------------------
+REPO_API_URL="https://api.github.com/repos/help-for-me/linux-scripts/contents"
+dialog --title "Fetching Scripts" --infobox "Fetching list of shell scripts from the repository..." 5 60
+RESPONSE=$(curl -sSL "$REPO_API_URL")
+if [ -z "$RESPONSE" ]; then
+    dialog --title "Error" --msgbox "Error: Could not fetch repository information." 8 50
+    exit 1
+fi
+clear
+
+# --------------------------------------------------
+# Step 3: Process repository contents.
+# --------------------------------------------------
+declare -A script_names
+declare -A script_urls
+index=1
+
+# Get files ending with .sh, excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
+SCRIPTS=$(echo "$RESPONSE" | jq -r '.[] | select(.type=="file") | select(.name|endswith(".sh")) | "\(.name) \(.download_url)"')
+
+while IFS= read -r line; do
+    script_name=$(echo "$line" | awk '{print $1}')
+    script_url=$(echo "$line" | awk '{print $2}')
+    
+    if [[ "$script_name" == "run-all-scripts.sh" || "$script_name" == "apt-cacher-ng_mapper.sh" ]]; then
+        continue
+    fi
+    
+    script_names[$index]="$script_name"
+    script_urls[$index]="$script_url"
+    ((index++))
+done <<< "$SCRIPTS"
+
+# --------------------------------------------------
+# Step 4: Display and execute the remaining scripts.
+# --------------------------------------------------
+if [ ${#script_names[@]} -eq 0 ]; then
+    dialog --title "No Scripts Found" --msgbox "No additional shell scripts found to run." 7 50
+    exit 0
+fi
+
+# Build checklist options for dialog.
+list_count=${#script_names[@]}
+cmd=(dialog --clear --stdout --checklist "Select the scripts to run:" 15 50 "$list_count")
+for key in $(echo "${!script_names[@]}" | tr ' ' '\n' | sort -n); do
+    cmd+=("$key" "${script_names[$key]}" "off")
+done
+
+selections=$("${cmd[@]}")
+ret_code=$?
+clear
+if [ $ret_code -ne 0 ] || [ -z "$selections" ]; then
+    dialog --title "No Selection" --msgbox "No scripts selected. Exiting." 7 50
+    exit 0
+fi
+
+selected=($selections)
+
+for num in "${selected[@]}"; do
+    if [[ -z "${script_names[$num]}" ]]; then
+        dialog --title "Invalid Selection" --msgbox "Invalid selection: $num. Skipping." 7 50
+        continue
+    fi
+    dialog --title "Running Script" --infobox "Running script: ${script_names[$num]}..." 5 50
+    curl -sSL "${script_urls[$num]}" | bash
+    dialog --title "Finished" --msgbox "Finished running ${script_names[$num]}." 7 50
+    clear
+done
+
+dialog --title "Done" --msgbox "All selected scripts have been executed." 7 50
+clear
+exit 0
