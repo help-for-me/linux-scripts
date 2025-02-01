@@ -1,144 +1,130 @@
 #!/bin/bash
 #
-# run-all-scripts.sh
+# install-apt-cacher-dialog.sh
 #
-# This script performs the following actions:
+# This script configures APT to use apt-cacher-ng as a proxy for HTTP downloads.
+# It checks if the provided IP address has an apt-cacher-ng server running.
+# If the server is unreachable, it asks the user to enter a new IP or abort.
 #
-# 1. Optionally runs apt-cacher-ng_mapper.sh to configure apt-cacher-ng.
-# 2. Ensures that jq (a JSON processor) is installed; if not, it uses a dialog prompt to offer installation.
-# 3. Ensures that dialog is installed (auto-installs it if missing) so that all interactive prompts use dialog.
-# 4. Fetches a list of shell scripts (.sh) from the GitHub repository
-#    https://github.com/help-for-me/linux-scripts (only from the repository's root),
-#    excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
-# 5. Displays a dialog checklist of the remaining scripts and allows the user to select one or more to run.
-#
-# Usage:
-#   sudo bash run-all-scripts.sh
+# Usage (as root):
+#   sudo ./install-apt-cacher-dialog.sh
 
-# --------------------------------------------------
-# Preliminary: Ensure that 'dialog' is installed (auto-install if missing)
-# --------------------------------------------------
-if ! command -v dialog &>/dev/null; then
-    echo "Dialog is not installed. Installing dialog..."
-    sudo apt update && sudo apt install dialog -y
-    if ! command -v dialog &>/dev/null; then
-        echo "Error: dialog installation failed. Exiting."
-        exit 1
-    fi
-fi
+set -e
 
-# --------------------------------------------------
-# Step 0: Ask the user if they want to run apt-cacher-ng_mapper.sh using dialog.
-# --------------------------------------------------
-APT_MAPPER_URL="https://raw.githubusercontent.com/help-for-me/linux-scripts/refs/heads/main/apt-cacher-ng_mapper.sh"
-
-dialog --title "APT Cacher NG Mapper" --yesno "Would you like to run apt-cacher-ng_mapper.sh to configure apt-cacher-ng?" 7 60
-response=$?
-clear
-if [ $response -eq 0 ]; then
-    dialog --title "Running Mapper" --infobox "Attempting to run apt-cacher-ng_mapper.sh..." 5 50
-    if curl -s --head --fail "$APT_MAPPER_URL" > /dev/null; then
-        curl -sSL "$APT_MAPPER_URL" | bash
-        dialog --title "Mapper Finished" --msgbox "Finished running apt-cacher-ng_mapper.sh." 7 50
-    else
-        dialog --title "Error" --msgbox "apt-cacher-ng_mapper.sh not found at $APT_MAPPER_URL. Skipping..." 7 50
-    fi
-else
-    dialog --title "Skipped" --msgbox "Skipping apt-cacher-ng_mapper.sh as per user request." 7 50
-fi
-clear
-
-# --------------------------------------------------
-# Step 1: Ensure that jq is installed.
-# --------------------------------------------------
-if ! command -v jq &>/dev/null; then
-    dialog --title "jq Installation" --yesno "This script requires jq (a JSON processor) to function.\nWithout jq, we cannot parse the repository contents.\n\nWould you like to install jq?" 10 60
-    response=$?
-    clear
-    if [ $response -eq 0 ]; then
-        dialog --title "Installing jq" --infobox "Installing jq..." 5 50
-        sudo apt update && sudo apt install jq -y
-        if ! command -v jq &>/dev/null; then
-            dialog --title "Error" --msgbox "Error: jq installation failed. Aborting." 8 40
-            exit 1
-        fi
-    else
-        dialog --title "jq Required" --msgbox "jq is required for this script. Aborting." 8 40
-        exit 1
-    fi
-fi
-clear
-
-# --------------------------------------------------
-# Step 2: Fetch repository contents from GitHub.
-# --------------------------------------------------
-REPO_API_URL="https://api.github.com/repos/help-for-me/linux-scripts/contents"
-dialog --title "Fetching Scripts" --infobox "Fetching list of shell scripts from the repository..." 5 60
-RESPONSE=$(curl -sSL "$REPO_API_URL")
-if [ -z "$RESPONSE" ]; then
-    dialog --title "Error" --msgbox "Error: Could not fetch repository information." 8 50
+# Check if running as root.
+if [[ "$EUID" -ne 0 ]]; then
+    dialog --msgbox "This installer must be run as root. Please run with sudo or as root." 8 50
     exit 1
 fi
-clear
 
-# --------------------------------------------------
-# Step 3: Process repository contents.
-# --------------------------------------------------
-declare -A script_names
-declare -A script_urls
-index=1
+# Display introduction.
+dialog --msgbox "APT Cacher NG Installer\n\nThis script will configure APT to use apt-cacher-ng as a proxy for HTTP downloads." 10 60
 
-# Get files ending with .sh, excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
-SCRIPTS=$(echo "$RESPONSE" | jq -r '.[] | select(.type=="file") | select(.name|endswith(".sh")) | "\(.name) \(.download_url)"')
-
-while IFS= read -r line; do
-    script_name=$(echo "$line" | awk '{print $1}')
-    script_url=$(echo "$line" | awk '{print $2}')
-    
-    if [[ "$script_name" == "run-all-scripts.sh" || "$script_name" == "apt-cacher-ng_mapper.sh" ]]; then
-        continue
-    fi
-    
-    script_names[$index]="$script_name"
-    script_urls[$index]="$script_url"
-    ((index++))
-done <<< "$SCRIPTS"
-
-# --------------------------------------------------
-# Step 4: Display and execute the remaining scripts.
-# --------------------------------------------------
-if [ ${#script_names[@]} -eq 0 ]; then
-    dialog --title "No Scripts Found" --msgbox "No additional shell scripts found to run." 7 50
-    exit 0
+# Ask the user if they want to update and upgrade packages.
+dialog --yesno "Would you like to update and upgrade your packages once everything is set up?" 8 60
+if [[ $? -eq 0 ]]; then
+    DO_UPGRADE=true
+else
+    DO_UPGRADE=false
 fi
 
-# Build checklist options for dialog.
-list_count=${#script_names[@]}
-cmd=(dialog --clear --stdout --checklist "Select the scripts to run:" 15 50 "$list_count")
-for key in $(echo "${!script_names[@]}" | tr ' ' '\n' | sort -n); do
-    cmd+=("$key" "${script_names[$key]}" "off")
+# Function to test APT Cacher NG availability
+test_apt_cacher() {
+    local ip=$1
+    echo "Testing connection to APT Cacher NG at $ip:3142..." >&2
+    
+    if command -v nc &>/dev/null; then
+        if nc -z -w3 "$ip" 3142; then
+            echo "Connection successful using nc." >&2
+            return 0
+        else
+            echo "Connection failed using nc." >&2
+        fi
+    fi
+    
+    if command -v curl &>/dev/null; then
+        RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "http://$ip:3142/")
+        if [[ "$RESPONSE" == "200" || "$RESPONSE" == "406" ]]; then
+            echo "Connection successful using curl (HTTP response: $RESPONSE)." >&2
+            return 0
+        else
+            echo "Connection failed using curl (HTTP response: $RESPONSE)." >&2
+        fi
+    fi
+    
+    if command -v telnet &>/dev/null; then
+        if echo "quit" | telnet "$ip" 3142 2>&1 | grep -q "Connected"; then
+            echo "Connection successful using telnet." >&2
+            return 0
+        else
+            echo "Connection failed using telnet." >&2
+        fi
+    fi
+    
+    echo "APT Cacher NG is unreachable. Please check if the service is running and the firewall is open on port 3142." >&2
+    return 1
+}
+
+# Loop until a valid IP is provided or the user aborts.
+while true; do
+    # Prompt the user for the apt-cacher-ng server IP address.
+    APTCACHER_IP=$(dialog --stdout --inputbox "Enter the IP address of your apt-cacher-ng server (e.g. 192.168.1.100):" 8 60)
+
+    # If the IP is left blank, abort the installer.
+    if [[ -z "$APTCACHER_IP" ]]; then
+        dialog --msgbox "No IP address provided. Aborting installer." 6 40
+        clear
+        exit 1
+    fi
+
+    # Validate the IP address format.
+    if [[ ! "$APTCACHER_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        dialog --yesno "Warning: The entered IP address does not match a typical IPv4 format.\n\nDo you want to continue anyway?" 8 60
+        if [[ $? -ne 0 ]]; then
+            continue
+        fi
+    fi
+
+    # Test connectivity to the apt-cacher-ng proxy.
+    if test_apt_cacher "$APTCACHER_IP"; then
+        dialog --msgbox "Successfully connected to apt-cacher-ng on $APTCACHER_IP:3142." 6 60
+        break
+    else
+        dialog --yesno "Could not connect to apt-cacher-ng on $APTCACHER_IP:3142.\n\nWould you like to enter a new IP address? Selecting 'No' will abort and remove all configurations." 8 60
+        if [[ $? -ne 0 ]]; then
+            dialog --msgbox "Aborting installation. Removing all configurations." 6 40
+            rm -f /etc/apt/apt.conf.d/01apt-cacher-ng
+            clear
+            exit 1
+        fi
+    fi
+
 done
 
-selections=$("${cmd[@]}")
-ret_code=$?
-clear
-if [ $ret_code -ne 0 ] || [ -z "$selections" ]; then
-    dialog --title "No Selection" --msgbox "No scripts selected. Exiting." 7 50
-    exit 0
+# Define the target APT configuration file.
+APT_CONF_FILE="/etc/apt/apt.conf.d/01apt-cacher-ng"
+
+# Backup any existing configuration file.
+if [[ -f "$APT_CONF_FILE" ]]; then
+    dialog --msgbox "Backing up existing configuration file to ${APT_CONF_FILE}.bak" 6 60
+    cp "$APT_CONF_FILE" "${APT_CONF_FILE}.bak"
 fi
 
-selected=($selections)
+# Write the configuration.
+cat <<EOF > "$APT_CONF_FILE"
+Acquire::http::Proxy "http://$APTCACHER_IP:3142";
+EOF
 
-for num in "${selected[@]}"; do
-    if [[ -z "${script_names[$num]}" ]]; then
-        dialog --title "Invalid Selection" --msgbox "Invalid selection: $num. Skipping." 7 50
-        continue
-    fi
-    dialog --title "Running Script" --infobox "Running script: ${script_names[$num]}..." 5 50
-    curl -sSL "${script_urls[$num]}" | bash
-    dialog --title "Finished" --msgbox "Finished running ${script_names[$num]}." 7 50
-    clear
-done
+dialog --msgbox "Configuration written to $APT_CONF_FILE.\nAPT is now configured to use APT Cacher NG at http://$APTCACHER_IP:3142 as a proxy for package downloads." 8 60
 
-dialog --title "Done" --msgbox "All selected scripts have been executed." 7 50
+# Run update and upgrade if requested.
+if [ "$DO_UPGRADE" = true ]; then
+    dialog --infobox "Updating package list..." 4 50
+    apt update
+    dialog --infobox "Upgrading packages..." 4 50
+    apt upgrade -y
+    dialog --msgbox "Packages updated and upgraded." 6 40
+fi
+
+dialog --msgbox "Installation complete.\nIf you encounter issues with apt, you can remove or modify ${APT_CONF_FILE}." 8 60
 clear
