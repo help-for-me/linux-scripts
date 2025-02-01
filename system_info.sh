@@ -1,5 +1,5 @@
 #!/bin/bash
-# system_info.sh - Displays system information.
+# system_info.sh - Displays system information and exports it to Discord.
 
 # Ensure `dialog` is installed
 if ! command -v dialog &> /dev/null; then
@@ -121,15 +121,26 @@ $TEMP_INFO
 # Display system information
 dialog --title "System Information" --msgbox "$INFO_TEXT" 35 90
 
+clear
+
+# -------------------------
 # Export system information to Discord
+# -------------------------
 # Set your Discord webhook URL
 WEBHOOK_URL="https://discord.com/api/webhooks/1335160467705827418/p8CV3AhYQeTK0PHh9iCQ2sIA5KrDlwi6_RM4CCHoj71qeO_aAlP3WX3y-Et9nDgr2jXs"
 
-# Construct JSON payload using echo -e (to interpret \n) and sed to escape double quotes
+# Construct JSON payload.
+# Use echo -e to interpret \n as newlines and sed to escape any double quotes.
 PAYLOAD="{\"content\": \"$(echo -e "$INFO_TEXT" | sed 's/"/\\"/g')\"}"
 
-# Send the payload to Discord using curl
-curl -s -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$WEBHOOK_URL" &>/dev/null
+# Debug: Print the payload to the terminal
+echo "DEBUG: Payload being sent to Discord:"
+echo "$PAYLOAD"
 
-clear
+# Send the payload to Discord using curl.
+# The -v flag enables verbose output so you can see connection details.
+DISCORD_RESPONSE=$(curl -v -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$WEBHOOK_URL")
+echo "DEBUG: Discord response:"
+echo "$DISCORD_RESPONSE"
+
 exit 0
