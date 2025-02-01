@@ -28,7 +28,7 @@ input=$(cat "$tempfile")
 
 # If the user pressed Cancel or Esc, exit the script
 if [ $response -ne 0 ]; then
-    echo "Operation cancelled."
+    dialog --msgbox "Operation cancelled." 6 40
     exit 1
 fi
 
@@ -47,7 +47,7 @@ config_file="/etc/apt/apt.conf.d/02proxy"
 
 # Check if the script is run as root
 if [ "$EUID" -ne 0 ]; then
-    echo "This script must be run as root. Please run with sudo."
+    dialog --msgbox "This script must be run as root. Please run with sudo." 6 50
     exit 1
 fi
 
@@ -60,19 +60,18 @@ http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$check_url")
 # echo "Received HTTP code: $http_code"
 
 if [[ "$http_code" != "406" && "${http_code:0:1}" != "2" ]]; then
-    echo "Error: Could not connect to apt-cacher-ng server at ${check_url}."
-    echo "Received HTTP status code: ${http_code}. Please verify the IP address and port, then try again."
+    dialog --msgbox "Error: Could not connect to apt-cacher-ng server at ${check_url}.\nReceived HTTP status code: ${http_code}.\nPlease verify the IP address and port, then try again." 10 60
     exit 1
 fi
 
 # Backup existing configuration file if it exists
 if [ -f "$config_file" ]; then
     cp "$config_file" "${config_file}.bak"
-    echo "Existing configuration backed up to ${config_file}.bak"
+    dialog --msgbox "Existing configuration backed up to ${config_file}.bak" 6 50
 fi
 
 # Write the proxy configuration to the file
 echo "$proxy_conf" > "$config_file"
 
 # Inform the user of the successful configuration
-echo "APT is now configured to use the proxy: http://${proxy}/"
+dialog --msgbox "APT is now configured to use the proxy: http://${proxy}/" 6 60
