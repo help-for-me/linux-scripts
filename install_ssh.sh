@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash 
 # install_ssh_fixed.sh
 #
 # This script ensures that OpenSSH Server is installed and properly configured so that:
