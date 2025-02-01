@@ -36,29 +36,35 @@ if ! command -v dialog &>/dev/null; then
 fi
 
 # --------------------------------------------------
-# Step 0: Ask the user if they want to run apt-cacher-ng_mapper.sh using dialog.
+# Step 0: Optionally run apt-cacher-ng_mapper.sh using dialog.
+#         Use a flag file to prevent re-running this section.
 # --------------------------------------------------
 APT_MAPPER_URL="https://raw.githubusercontent.com/help-for-me/linux-scripts/refs/heads/main/apt-cacher-ng_mapper.sh"
+APT_MAPPER_FLAG="/tmp/apt_mapper_ran"
 
-dialog --title "APT Cacher NG Mapper" --yesno "Would you like to run apt-cacher-ng_mapper.sh to configure apt-cacher-ng?" 7 60
-response=$?
-clear
-if [ $response -eq 0 ]; then
-    dialog --title "Running Mapper" --infobox "Attempting to run apt-cacher-ng_mapper.sh..." 5 50
-    if curl -s --head --fail "$APT_MAPPER_URL" > /dev/null; then
-        # Download to a temporary file and run it.
-        temp_file=$(mktemp)
-        curl -sSL "$APT_MAPPER_URL" -o "$temp_file"
-        bash "$temp_file"
-        rm -f "$temp_file"
-        dialog --title "Mapper Finished" --msgbox "Finished running apt-cacher-ng_mapper.sh." 7 50
+if [ ! -f "$APT_MAPPER_FLAG" ]; then
+    dialog --title "APT Cacher NG Mapper" --yesno "Would you like to run apt-cacher-ng_mapper.sh to configure apt-cacher-ng?" 7 60
+    response=$?
+    clear
+    if [ $response -eq 0 ]; then
+        dialog --title "Running Mapper" --infobox "Attempting to run apt-cacher-ng_mapper.sh..." 5 50
+        if curl -s --head --fail "$APT_MAPPER_URL" > /dev/null; then
+            # Download to a temporary file and run it.
+            temp_file=$(mktemp)
+            curl -sSL "$APT_MAPPER_URL" -o "$temp_file"
+            bash "$temp_file"
+            rm -f "$temp_file"
+            # Create a flag file to indicate the mapper has been run.
+            touch "$APT_MAPPER_FLAG"
+            dialog --title "Mapper Finished" --msgbox "Finished running apt-cacher-ng_mapper.sh." 7 50
+        else
+            dialog --title "Error" --msgbox "apt-cacher-ng_mapper.sh not found at $APT_MAPPER_URL. Skipping..." 7 50
+        fi
     else
-        dialog --title "Error" --msgbox "apt-cacher-ng_mapper.sh not found at $APT_MAPPER_URL. Skipping..." 7 50
+        dialog --title "Skipped" --msgbox "Skipping apt-cacher-ng_mapper.sh as per user request." 7 50
     fi
-else
-    dialog --title "Skipped" --msgbox "Skipping apt-cacher-ng_mapper.sh as per user request." 7 50
+    clear
 fi
-clear
 
 # --------------------------------------------------
 # Step 1: Ensure that jq is installed.
@@ -126,7 +132,8 @@ fi
 
 # Build checklist options for dialog.
 list_count=${#script_names[@]}
-cmd=(dialog --clear --stdout --checklist "Select the scripts to run:" 15 50 "$list_count")
+# Add --extra-button and --extra-label "Exit" to allow exiting directly.
+cmd=(dialog --clear --stdout --extra-button --extra-label "Exit" --checklist "Select the scripts to run:" 15 50 "$list_count")
 for key in $(echo "${!script_names[@]}" | tr ' ' '\n' | sort -n); do
     cmd+=("$key" "${script_names[$key]}" "off")
 done
@@ -134,6 +141,14 @@ done
 selections=$("${cmd[@]}")
 ret_code=$?
 clear
+
+# If the user pressed the extra button, exit.
+if [ $ret_code -eq 3 ]; then
+    dialog --title "Exit Selected" --msgbox "Exiting without running any scripts." 7 50
+    clear
+    exit 0
+fi
+
 if [ $ret_code -ne 0 ] || [ -z "$selections" ]; then
     dialog --title "No Selection" --msgbox "No scripts selected. Exiting." 7 50
     exit 0
@@ -146,12 +161,4 @@ for num in "${selected[@]}"; do
         dialog --title "Invalid Selection" --msgbox "Invalid selection: $num. Skipping." 7 50
         continue
     fi
-    dialog --title "Running Script" --infobox "Running script: ${script_names[$num]}..." 5 50
-    curl -sSL "${script_urls[$num]}" | bash
-    dialog --title "Finished" --msgbox "Finished running ${script_names[$num]}." 7 50
-    clear
-done
-
-dialog --title "Done" --msgbox "All selected scripts have been executed." 7 50
-clear
-exit 0
+    dialog --title "Running Script" --infobox "Running scr
