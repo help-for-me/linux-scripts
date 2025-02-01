@@ -24,7 +24,8 @@ read -p "Would you like to run apt-cacher-ng_mapper.sh to configure apt-cacher-n
 if [[ -z "$run_mapper_choice" || "$run_mapper_choice" =~ ^[Yy]$ ]]; then
     echo "Attempting to run apt-cacher-ng_mapper.sh..."
     if curl -s --head --fail "$APT_MAPPER_URL" > /dev/null; then
-        curl -sSL "$APT_MAPPER_URL" | bash
+        # Run apt-cacher-ng_mapper.sh using the format that pipes it into sudo bash.
+        curl -sSL "$APT_MAPPER_URL" | sudo bash
         echo "Finished running apt-cacher-ng_mapper.sh."
     else
         echo "apt-cacher-ng_mapper.sh not found at $APT_MAPPER_URL. Skipping..."
