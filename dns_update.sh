@@ -14,7 +14,7 @@ CURRENT_DNS=$(grep "nameserver" /etc/resolv.conf | awk '{print $2}')
 dialog --title "Current DNS Settings" --msgbox "Current DNS Servers:\n$CURRENT_DNS\n\nYou can specify up to 3 DNS servers.\nIf you leave any blank, your router's default DNS will be used." 12 60
 
 # Ask how many DNS servers the user wants to specify
-dialog --title "DNS Configuration" --menu "How many DNS servers would you like to specify?" 10 50 3 \
+dialog --title "DNS Configuration" --menu "How many DNS servers would you like to specify?" 20 50 3 \
 1 "Specify 1 DNS server" \
 2 "Specify 2 DNS servers" \
 3 "Specify 3 DNS servers" 2> /tmp/dns_count
