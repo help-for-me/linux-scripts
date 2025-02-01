@@ -4,27 +4,27 @@
 #
 # This script performs the following actions:
 #
-# 1. Optionally runs apt-cacher-ng_mapper.sh to configure apt-cacher-ng.
-# 2. Checks if jq (a JSON processor) is installed; if not, prompts the user twice to install it.
-# 3. (Optionally) ensures that dialog is installed so that a checklist can be used.
-# 4. Fetches a list of shell scripts (.sh) from the GitHub repository
-#    https://github.com/help-for-me/linux-scripts (only from the repository's root),
-#    excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
-# 5. Displays a checklist of the remaining scripts and allows the user to select one or more scripts to run.
+# Step 0: Optionally run apt-cacher-ng_mapper.sh (the APT Cacher NG Installer) to configure apt-cacher-ng.
+# Step 1: Ensure that jq (a JSON processor) is installed.
+# Step 2: Optionally ensure that dialog is installed for interactive script selection.
+# Step 3: Fetch a list of shell scripts (.sh) from the GitHub repository
+#         https://github.com/help-for-me/linux-scripts (only from the repository's root),
+#         excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
+# Step 4: Display a checklist of the remaining scripts and allow the user to select one or more scripts to run.
 #
 # Usage:
 #   bash run-all-scripts.sh
 
 # --------------------------------------------------
-# Step 0: Ask the user if they want to run apt-cacher-ng_mapper.sh.
+# Step 0: Ask the user if they want to run the APT Cacher NG Installer.
 # --------------------------------------------------
 APT_MAPPER_URL="https://raw.githubusercontent.com/help-for-me/linux-scripts/refs/heads/main/apt-cacher-ng_mapper.sh"
 
-read -p "Would you like to run apt-cacher-ng_mapper.sh to configure apt-cacher-ng? (Y/n): " run_mapper_choice
+read -p "Would you like to run the APT Cacher NG Installer (apt-cacher-ng_mapper.sh) to configure apt-cacher-ng? (Y/n): " run_mapper_choice
 if [[ -z "$run_mapper_choice" || "$run_mapper_choice" =~ ^[Yy]$ ]]; then
     echo "Attempting to run apt-cacher-ng_mapper.sh..."
     if curl -s --head --fail "$APT_MAPPER_URL" > /dev/null; then
-        # Run apt-cacher-ng_mapper.sh using the format that pipes it into sudo bash.
+        # Run apt-cacher-ng_mapper.sh using sudo bash.
         curl -sSL "$APT_MAPPER_URL" | sudo bash
         echo "Finished running apt-cacher-ng_mapper.sh."
     else
@@ -32,7 +32,7 @@ if [[ -z "$run_mapper_choice" || "$run_mapper_choice" =~ ^[Yy]$ ]]; then
     fi
     echo
 else
-    echo "Skipping apt-cacher-ng_mapper.sh as per user request."
+    echo "Skipping the APT Cacher NG Installer as per user request."
     echo
 fi
 
@@ -68,7 +68,7 @@ if ! command -v jq &>/dev/null; then
 fi
 
 # --------------------------------------------------
-# Step 1.5: Ensure that dialog is installed (optional).
+# Step 2: Ensure that dialog is installed (optional).
 # --------------------------------------------------
 if ! command -v dialog &>/dev/null; then
     read -p "The script uses 'dialog' for interactive selection, which is not installed. Would you like to install it? (Y/n): " install_dialog
@@ -84,7 +84,7 @@ if ! command -v dialog &>/dev/null; then
 fi
 
 # --------------------------------------------------
-# Step 2: Fetch repository contents from GitHub.
+# Step 3: Fetch repository contents from GitHub.
 # --------------------------------------------------
 REPO_API_URL="https://api.github.com/repos/help-for-me/linux-scripts/contents"
 echo "Fetching list of shell scripts from the repository..."
@@ -95,7 +95,7 @@ if [ -z "$RESPONSE" ]; then
 fi
 
 # --------------------------------------------------
-# Step 3: Process repository contents.
+# Step 4: Process repository contents.
 # --------------------------------------------------
 # We'll store selectable scripts using associative arrays.
 declare -A script_names
@@ -124,7 +124,7 @@ while IFS= read -r line; do
 done <<< "$SCRIPTS"
 
 # --------------------------------------------------
-# Step 4: Display and execute the remaining scripts.
+# Step 5: Display and execute the remaining scripts.
 # --------------------------------------------------
 if [ ${#script_names[@]} -eq 0 ]; then
     echo "No additional shell scripts found to run."
