@@ -115,7 +115,7 @@ cat <<EOF > "$APT_CONF_FILE"
 Acquire::http::Proxy "http://$APTCACHER_IP:3142";
 EOF
 
-dialog --msgbox "Configuration written to $APT_CONF_FILE.\nAPT will now attempt to use apt-cacher-ng at http://$APTCACHER_IP:3142 for HTTP downloads." 8 60
+dialog --msgbox "Configuration written to $APT_CONF_FILE.\nAPT is now configured to use APT Cacher NG at http://$APTCACHER_IP:3142 as a proxy for package downloads." 8 60
 
 # Run update and upgrade if requested.
 if [ "$DO_UPGRADE" = true ]; then
