@@ -4,12 +4,12 @@
 #
 # This script performs the following actions:
 #
-# Step 0: Optionally run the APT Cacher NG Installer (apt-cacher-ng_mapper.sh) to configure apt-cacher-ng.
+# Step 0: Optionally run the APT Cacher NG Installer (install-apt-cacher-dialog.sh) to configure apt-cacher-ng.
 # Step 1: Ensure that jq (a JSON processor) is installed.
 # Step 2: Optionally ensure that dialog is installed for interactive script selection.
 # Step 3: Fetch a list of shell scripts (.sh) from the GitHub repository
 #         https://github.com/help-for-me/linux-scripts (only from the repository's root),
-#         excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
+#         excluding run-all-scripts.sh and install-apt-cacher-dialog.sh.
 # Step 4: Display a checklist of the remaining scripts and allow the user to select one or more scripts to run.
 #
 # Usage:
@@ -18,13 +18,25 @@
 # --------------------------------------------------
 # Step 0: Ask the user if they want to run the APT Cacher NG Installer.
 # --------------------------------------------------
-APT_MAPPER_URL="https://raw.githubusercontent.com/help-for-me/linux-scripts/refs/heads/main/apt-cacher-ng_mapper.sh"
+# Updated URL now points to install-apt-cacher-dialog.sh.
+APT_INSTALLER_URL="https://raw.githubusercontent.com/help-for-me/linux-scripts/refs/heads/main/install-apt-cacher-dialog.sh"
 
-read -p "Would you like to run the APT Cacher NG Installer (apt-cacher-ng_mapper.sh) to configure apt-cacher-ng? (Y/n): " run_mapper_choice
-if [[ -z "$run_mapper_choice" || "$run_mapper_choice" =~ ^[Yy]$ ]]; then
-    echo "Attempting to run apt-cacher-ng_mapper.sh..."
-    curl -sSL https://raw.githubusercontent.com/help-for-me/linux-scripts/refs/heads/main/apt-cacher-ng_mapper.sh | sudo bash || true
-    echo "Finished running apt-cacher-ng_mapper.sh."
+read -p "Would you like to run the APT Cacher NG Installer (install-apt-cacher-dialog.sh) to configure apt-cacher-ng? (Y/n): " run_installer_choice
+if [[ -z "$run_installer_choice" || "$run_installer_choice" =~ ^[Yy]$ ]]; then
+    echo "Attempting to run install-apt-cacher-dialog.sh..."
+    # Create a temporary file for the installer.
+    TMP_INSTALLER=$(mktemp)
+    
+    # Download the installer to the temporary file.
+    curl -sSL "$APT_INSTALLER_URL" -o "$TMP_INSTALLER"
+    
+    # Run the installer using sudo.
+    sudo bash "$TMP_INSTALLER" || true
+    
+    # Remove the temporary file.
+    rm -f "$TMP_INSTALLER"
+    
+    echo "Finished running install-apt-cacher-dialog.sh."
     echo
 else
     echo "Skipping the APT Cacher NG Installer as per user request."
@@ -99,7 +111,7 @@ index=1
 
 # Filter for files that end with .sh in the repository's root.
 # Exclude run-all-scripts.sh (to avoid self-execution) and
-# apt-cacher-ng_mapper.sh (since it has been handled above).
+# install-apt-cacher-dialog.sh (since it has been handled above).
 SCRIPTS=$(echo "$RESPONSE" | jq -r '.[] | select(.type=="file") | select(.name|endswith(".sh")) | "\(.name) \(.download_url)"')
 
 while IFS= read -r line; do
@@ -107,8 +119,8 @@ while IFS= read -r line; do
     script_name=$(echo "$line" | awk '{print $1}')
     script_url=$(echo "$line" | awk '{print $2}')
 
-    # Exclude run-all-scripts.sh and apt-cacher-ng_mapper.sh
-    if [[ "$script_name" == "run-all-scripts.sh" || "$script_name" == "apt-cacher-ng_mapper.sh" ]]; then
+    # Exclude run-all-scripts.sh and install-apt-cacher-dialog.sh
+    if [[ "$script_name" == "run-all-scripts.sh" || "$script_name" == "install-apt-cacher-dialog.sh" ]]; then
         continue
     fi
 
