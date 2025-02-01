@@ -68,20 +68,13 @@ if [ ! -f "$APT_MAPPER_FLAG" ]; then
 fi
 
 # --------------------------------------------------
-# Step 2: Ensure jq is installed
+# Step 2: Ensure jq is installed quietly
 # --------------------------------------------------
 if ! command -v jq &>/dev/null; then
-    dialog --title "jq Installation" --yesno "This script requires jq (a JSON processor).\nInstall jq now?" 10 50
-    response=$?
-    clear
-    if [ $response -eq 0 ]; then
-        sudo apt update && sudo apt install jq -y
-        if ! command -v jq &>/dev/null; then
-            dialog --title "Error" --msgbox "Failed to install jq. Aborting." 8 50
-            exit 1
-        fi
-    else
-        dialog --title "jq Required" --msgbox "jq is required for this script. Aborting." 8 50
+    # Quietly attempt to install jq
+    sudo apt update -qq && sudo apt install -y jq > /dev/null 2>&1
+    if ! command -v jq &>/dev/null; then
+        dialog --title "Error" --msgbox "Failed to install jq. Aborting." 8 50
         exit 1
     fi
 fi
