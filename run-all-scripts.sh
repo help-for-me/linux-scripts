@@ -24,8 +24,9 @@ read -p "Would you like to run the APT Cacher NG Installer (apt-cacher-ng_mapper
 if [[ -z "$run_mapper_choice" || "$run_mapper_choice" =~ ^[Yy]$ ]]; then
     echo "Attempting to run apt-cacher-ng_mapper.sh..."
     if curl -s --head --fail "$APT_MAPPER_URL" > /dev/null; then
-        # Run apt-cacher-ng_mapper.sh using sudo bash.
-        curl -sSL "$APT_MAPPER_URL" | sudo bash
+        # Pipe the installer into sudo bash,
+        # but force its STDIN to be /dev/tty so that it doesn’t consume the main script’s input.
+        curl -sSL "$APT_MAPPER_URL" | sudo bash -s -- < /dev/tty
         echo "Finished running apt-cacher-ng_mapper.sh."
     else
         echo "apt-cacher-ng_mapper.sh not found at $APT_MAPPER_URL. Skipping..."
