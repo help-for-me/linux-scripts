@@ -1,6 +1,8 @@
 #!/bin/bash 
 # install_ssh_fixed.sh
 #
+# Adding a test comment to try pull requests
+# 
 # This script ensures that OpenSSH Server is installed and properly configured so that:
 #  - It listens on port 22
 #  - It allows root login with password authentication (if enabled)
