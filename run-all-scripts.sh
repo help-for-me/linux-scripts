@@ -7,10 +7,10 @@
 # 1. Optionally runs apt-cacher-ng_mapper.sh to configure apt-cacher-ng.
 # 2. Ensures that jq (a JSON processor) is installed; if not, it uses a dialog prompt to offer installation.
 # 3. Ensures that dialog is installed (auto-installs it if missing) so that all interactive prompts use dialog.
-# 4. Fetches a list of shell scripts (.sh) from the GitHub repository
-#    https://github.com/help-for-me/linux-scripts (only from the repository's root),
-#    excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
-# 5. Displays a dialog checklist of the remaining scripts and allows the user to select one or more to run.
+# 4. Asks the user whether to fetch scripts from the 'main' or 'test-branch'.
+# 5. Fetches a list of shell scripts (.sh) from the selected branch of the GitHub repository
+#    https://github.com/help-for-me/linux-scripts, excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
+# 6. Displays a dialog checklist of the remaining scripts and allows the user to select one or more to run.
 #
 # Usage:
 #   sudo bash run-all-scripts.sh
@@ -37,9 +37,8 @@ fi
 
 # --------------------------------------------------
 # Step 0: Optionally run apt-cacher-ng_mapper.sh using dialog.
-#         Use a flag file to prevent re-running this section.
 # --------------------------------------------------
-APT_MAPPER_URL="https://raw.githubusercontent.com/help-for-me/linux-scripts/refs/heads/main/apt-cacher-ng_mapper.sh"
+APT_MAPPER_URL="https://raw.githubusercontent.com/help-for-me/linux-scripts/main/apt-cacher-ng_mapper.sh"
 APT_MAPPER_FLAG="/tmp/apt_mapper_ran"
 
 if [ ! -f "$APT_MAPPER_FLAG" ]; then
@@ -49,12 +48,10 @@ if [ ! -f "$APT_MAPPER_FLAG" ]; then
     if [ $response -eq 0 ]; then
         dialog --title "Running Mapper" --infobox "Attempting to run apt-cacher-ng_mapper.sh..." 5 50
         if curl -s --head --fail "$APT_MAPPER_URL" > /dev/null; then
-            # Download to a temporary file and run it.
             temp_file=$(mktemp)
             curl -sSL "$APT_MAPPER_URL" -o "$temp_file"
             bash "$temp_file"
             rm -f "$temp_file"
-            # Create a flag file to indicate the mapper has been run.
             touch "$APT_MAPPER_FLAG"
             dialog --title "Mapper Finished" --msgbox "Finished running apt-cacher-ng_mapper.sh." 7 50
         else
@@ -67,30 +64,44 @@ if [ ! -f "$APT_MAPPER_FLAG" ]; then
 fi
 
 # --------------------------------------------------
-# Step 1: Ensure that jq is installed.
+# Step 1: Ask the user which branch to use.
+# --------------------------------------------------
+BRANCH_CHOICE=$(dialog --clear --stdout --menu "Select the branch to fetch scripts from:" 10 50 2 \
+    "main" "Stable - Main branch" \
+    "test-branch" "Testing - Experimental branch")
+
+clear
+if [ -z "$BRANCH_CHOICE" ]; then
+    dialog --title "No Selection" --msgbox "No branch selected. Exiting." 7 50
+    exit 1
+fi
+
+# Set the repository API URL based on user selection
+REPO_API_URL="https://api.github.com/repos/help-for-me/linux-scripts/contents?ref=$BRANCH_CHOICE"
+
+# --------------------------------------------------
+# Step 2: Ensure that jq is installed.
 # --------------------------------------------------
 sudo apt update && sudo apt install jq -y
 
 # --------------------------------------------------
-# Step 2: Fetch repository contents from GitHub.
+# Step 3: Fetch repository contents from the selected branch.
 # --------------------------------------------------
-REPO_API_URL="https://api.github.com/repos/help-for-me/linux-scripts/contents"
-dialog --title "Fetching Scripts" --infobox "Fetching list of shell scripts from the repository..." 5 60
+dialog --title "Fetching Scripts" --infobox "Fetching list of shell scripts from the $BRANCH_CHOICE branch..." 5 60
 RESPONSE=$(curl -sSL "$REPO_API_URL")
 if [ -z "$RESPONSE" ]; then
-    dialog --title "Error" --msgbox "Error: Could not fetch repository information." 8 50
+    dialog --title "Error" --msgbox "Error: Could not fetch repository information from $BRANCH_CHOICE branch." 8 50
     exit 1
 fi
 clear
 
 # --------------------------------------------------
-# Step 3: Process repository contents.
+# Step 4: Process repository contents.
 # --------------------------------------------------
 declare -A script_names
 declare -A script_urls
 index=1
 
-# Get files ending with .sh, excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
 SCRIPTS=$(echo "$RESPONSE" | jq -r '.[] | select(.type=="file") | select(.name|endswith(".sh")) | "\(.name) \(.download_url)"')
 
 while IFS= read -r line; do
@@ -107,17 +118,15 @@ while IFS= read -r line; do
 done <<< "$SCRIPTS"
 
 # --------------------------------------------------
-# Step 4: Display and execute the remaining scripts.
+# Step 5: Display and execute the remaining scripts.
 # --------------------------------------------------
 if [ ${#script_names[@]} -eq 0 ]; then
-    dialog --title "No Scripts Found" --msgbox "No additional shell scripts found to run." 7 50
+    dialog --title "No Scripts Found" --msgbox "No additional shell scripts found in the $BRANCH_CHOICE branch." 7 50
     exit 0
 fi
 
-# Build checklist options for dialog.
 list_count=${#script_names[@]}
-# Add --extra-button and --extra-label "Exit" to allow exiting directly.
-cmd=(dialog --clear --stdout --extra-button --extra-label "Exit" --checklist "Select the scripts to run:" 15 50 "$list_count")
+cmd=(dialog --clear --stdout --extra-button --extra-label "Exit" --checklist "Select the scripts to run from $BRANCH_CHOICE:" 15 50 "$list_count")
 for key in $(echo "${!script_names[@]}" | tr ' ' '\n' | sort -n); do
     cmd+=("$key" "${script_names[$key]}" "off")
 done
@@ -126,7 +135,6 @@ selections=$("${cmd[@]}")
 ret_code=$?
 clear
 
-# If the user pressed the extra button, exit.
 if [ $ret_code -eq 3 ]; then
     dialog --title "Exit Selected" --msgbox "Exiting without running any scripts." 7 50
     clear
@@ -139,7 +147,7 @@ if [ $ret_code -ne 0 ] || [ -z "$selections" ]; then
 fi
 
 # --------------------------------------------------
-# Step 5: Run the selected scripts.
+# Step 6: Run the selected scripts.
 # --------------------------------------------------
 selected=($selections)
 
@@ -148,11 +156,9 @@ for num in "${selected[@]}"; do
         dialog --title "Invalid Selection" --msgbox "Invalid selection: $num. Skipping." 7 50
         continue
     fi
-    # Inform the user which script is running.
     dialog --title "Running Script" --infobox "Running script ${script_names[$num]}..." 5 50
-    sleep 2  # Optional pause so the user can read the message.
+    sleep 2
     
-    # Download the script to a temporary file.
     temp_file=$(mktemp)
     curl -sSL "${script_urls[$num]}" -o "$temp_file"
     
@@ -162,13 +168,11 @@ for num in "${selected[@]}"; do
         continue
     fi
     
-    # Make the script executable and run it.
     chmod +x "$temp_file"
     bash "$temp_file"
     
-    # Remove the temporary file after execution.
     rm -f "$temp_file"
 done
 
-dialog --title "All Done" --msgbox "Finished running the selected scripts." 7 50
+dialog --title "All Done" --msgbox "Finished running the selected scripts from $BRANCH_CHOICE." 7 50
 clear
