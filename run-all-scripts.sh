@@ -4,13 +4,14 @@
 #
 # This script performs the following actions:
 #
-# 1. Optionally runs apt-cacher-ng_mapper.sh to configure apt-cacher-ng.
-# 2. Ensures that jq (a JSON processor) is installed; if not, it uses a dialog prompt to offer installation.
-# 3. Ensures that dialog is installed (auto-installs it if missing) so that all interactive prompts use dialog.
-# 4. Asks the user whether to fetch scripts from the 'main' or 'test-branch'.
-# 5. Fetches a list of shell scripts (.sh) from the selected branch of the GitHub repository
-#    https://github.com/help-for-me/linux-scripts, excluding run-all-scripts.sh and apt-cacher-ng_mapper.sh.
-# 6. Displays a dialog checklist of the remaining scripts and allows the user to select one or more to run.
+# 1. Ensures that jq (a JSON processor) is installed.
+# 2. Ensures that dialog is installed (auto-installs it if missing) for interactive prompts.
+# 3. Asks the user whether to fetch scripts from the 'main' or 'test-branch'.
+# 4. Fetches a list of shell scripts (.sh) from the selected branch of the GitHub repository
+#    https://github.com/help-for-me/linux-scripts, excluding run-all-scripts.sh.
+# 5. Displays a dialog checklist of the scripts and allows the user to select one or more to run.
+# 6. If selected, runs apt-cacher-ng_mapper.sh first (after clearing any local cache),
+#    then runs the remaining scripts.
 #
 # Usage:
 #   sudo bash run-all-scripts.sh
@@ -24,6 +25,13 @@ fi
 export RUN_ALL_SCRIPTS_RAN=1
 
 # --------------------------------------------------
+# Clear any cached/local copies
+#
+# Remove the apt-cacher-ng_mapper.sh flag file (if exists) to ensure a fresh run.
+# --------------------------------------------------
+rm -f /tmp/apt_mapper_ran
+
+# --------------------------------------------------
 # Preliminary: Ensure that 'dialog' is installed (auto-install if missing)
 # --------------------------------------------------
 if ! command -v dialog &>/dev/null; then
@@ -33,34 +41,6 @@ if ! command -v dialog &>/dev/null; then
         echo "Error: dialog installation failed. Exiting."
         exit 1
     fi
-fi
-
-# --------------------------------------------------
-# Step 0: Optionally run apt-cacher-ng_mapper.sh using dialog.
-# --------------------------------------------------
-APT_MAPPER_URL="https://raw.githubusercontent.com/help-for-me/linux-scripts/main/apt-cacher-ng_mapper.sh"
-APT_MAPPER_FLAG="/tmp/apt_mapper_ran"
-
-if [ ! -f "$APT_MAPPER_FLAG" ]; then
-    dialog --title "APT Cacher NG Mapper" --yesno "Would you like to run apt-cacher-ng_mapper.sh to configure apt-cacher-ng?" 7 60
-    response=$?
-    clear
-    if [ $response -eq 0 ]; then
-        dialog --title "Running Mapper" --infobox "Attempting to run apt-cacher-ng_mapper.sh..." 5 50
-        if curl -s --head --fail "$APT_MAPPER_URL" > /dev/null; then
-            temp_file=$(mktemp)
-            curl -sSL "$APT_MAPPER_URL" -o "$temp_file"
-            bash "$temp_file"
-            rm -f "$temp_file"
-            touch "$APT_MAPPER_FLAG"
-            dialog --title "Mapper Finished" --msgbox "Finished running apt-cacher-ng_mapper.sh." 7 50
-        else
-            dialog --title "Error" --msgbox "apt-cacher-ng_mapper.sh not found at $APT_MAPPER_URL. Skipping..." 7 50
-        fi
-    else
-        dialog --title "Skipped" --msgbox "Skipping apt-cacher-ng_mapper.sh as per user request." 7 50
-    fi
-    clear
 fi
 
 # --------------------------------------------------
@@ -88,7 +68,8 @@ sudo apt update && sudo apt install jq -y
 # Step 3: Fetch repository contents from the selected branch.
 # --------------------------------------------------
 dialog --title "Fetching Scripts" --infobox "Fetching list of shell scripts from the $BRANCH_CHOICE branch..." 5 60
-RESPONSE=$(curl -sSL "$REPO_API_URL")
+# Use Cache-Control: no-cache to force fetching the latest version
+RESPONSE=$(curl -sSL -H "Cache-Control: no-cache" "$REPO_API_URL")
 if [ -z "$RESPONSE" ]; then
     dialog --title "Error" --msgbox "Error: Could not fetch repository information from $BRANCH_CHOICE branch." 8 50
     exit 1
@@ -102,13 +83,14 @@ declare -A script_names
 declare -A script_urls
 index=1
 
+# Only exclude run-all-scripts.sh so that apt-cacher-ng_mapper.sh is included.
 SCRIPTS=$(echo "$RESPONSE" | jq -r '.[] | select(.type=="file") | select(.name|endswith(".sh")) | "\(.name) \(.download_url)"')
 
 while IFS= read -r line; do
     script_name=$(echo "$line" | awk '{print $1}')
     script_url=$(echo "$line" | awk '{print $2}')
     
-    if [[ "$script_name" == "run-all-scripts.sh" || "$script_name" == "apt-cacher-ng_mapper.sh" ]]; then
+    if [[ "$script_name" == "run-all-scripts.sh" ]]; then
         continue
     fi
     
@@ -118,7 +100,7 @@ while IFS= read -r line; do
 done <<< "$SCRIPTS"
 
 # --------------------------------------------------
-# Step 5: Display and execute the remaining scripts.
+# Step 5: Display and allow the user to select scripts to run.
 # --------------------------------------------------
 if [ ${#script_names[@]} -eq 0 ]; then
     dialog --title "No Scripts Found" --msgbox "No additional shell scripts found in the $BRANCH_CHOICE branch." 7 50
@@ -146,12 +128,43 @@ if [ $ret_code -ne 0 ] || [ -z "$selections" ]; then
     exit 0
 fi
 
-# --------------------------------------------------
-# Step 6: Run the selected scripts.
-# --------------------------------------------------
+# Convert selections (space-delimited string) into an array.
 selected=($selections)
 
+# --------------------------------------------------
+# Step 6: Execute selected scripts.
+#
+# Run apt-cacher-ng_mapper.sh first if selected, then the remaining scripts.
+# --------------------------------------------------
+# First, run apt-cacher-ng_mapper.sh if it is among the selections.
 for num in "${selected[@]}"; do
+    if [[ "${script_names[$num]}" == "apt-cacher-ng_mapper.sh" ]]; then
+        dialog --title "Running Script" --infobox "Running apt-cacher-ng_mapper.sh..." 5 50
+        sleep 2
+        
+        temp_file=$(mktemp)
+        # Use no-cache header to force downloading the latest version
+        curl -sSL -H "Cache-Control: no-cache" "${script_urls[$num]}" -o "$temp_file"
+        if [ ! -s "$temp_file" ]; then
+            dialog --title "Download Error" --msgbox "Failed to download apt-cacher-ng_mapper.sh. Skipping." 7 50
+            rm -f "$temp_file"
+        else
+            chmod +x "$temp_file"
+            bash "$temp_file"
+            rm -f "$temp_file"
+        fi
+        # Remove apt-cacher-ng_mapper.sh from the selection array so it won't run twice.
+        selected=("${selected[@]/$num}")
+        break
+    fi
+done
+
+# Now, run all other selected scripts.
+for num in "${selected[@]}"; do
+    # Skip empty entries (in case the previous loop removed one)
+    if [[ -z "$num" ]]; then
+        continue
+    fi
     if [[ -z "${script_names[$num]}" ]]; then
         dialog --title "Invalid Selection" --msgbox "Invalid selection: $num. Skipping." 7 50
         continue
@@ -160,7 +173,7 @@ for num in "${selected[@]}"; do
     sleep 2
     
     temp_file=$(mktemp)
-    curl -sSL "${script_urls[$num]}" -o "$temp_file"
+    curl -sSL -H "Cache-Control: no-cache" "${script_urls[$num]}" -o "$temp_file"
     
     if [ ! -s "$temp_file" ]; then
         dialog --title "Download Error" --msgbox "Failed to download ${script_names[$num]}. Skipping." 7 50
@@ -170,7 +183,6 @@ for num in "${selected[@]}"; do
     
     chmod +x "$temp_file"
     bash "$temp_file"
-    
     rm -f "$temp_file"
 done
 
