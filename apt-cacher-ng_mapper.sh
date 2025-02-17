@@ -4,7 +4,7 @@
 #
 # This script configures APT to use apt-cacher-ng as a proxy for HTTP downloads.
 # It checks if the provided IP address has an apt-cacher-ng server running.
-# If the server is unreachable, it asks the user to enter a new IP or abort.
+# If the server is unreachable, it asks the user to enter a new IP or cancel the installation.
 #
 # Usage (as root):
 #   sudo ./install-apt-cacher-dialog.sh
@@ -28,11 +28,11 @@ else
     DO_UPGRADE=false
 fi
 
-# Function to test APT Cacher NG availability
+# Function to test APT Cacher NG availability.
 test_apt_cacher() {
     local ip=$1
     echo "Testing connection to APT Cacher NG at $ip:3142..." >&2
-    
+
     if command -v nc &>/dev/null; then
         if nc -z -w3 "$ip" 3142; then
             echo "Connection successful using nc." >&2
@@ -41,7 +41,7 @@ test_apt_cacher() {
             echo "Connection failed using nc." >&2
         fi
     fi
-    
+
     if command -v curl &>/dev/null; then
         RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "http://$ip:3142/")
         if [[ "$RESPONSE" == "200" || "$RESPONSE" == "406" ]]; then
@@ -51,28 +51,29 @@ test_apt_cacher() {
             echo "Connection failed using curl (HTTP response: $RESPONSE)." >&2
         fi
     fi
-    
+
     if command -v telnet &>/dev/null; then
-        if echo "quit" | telnet "$ip" 3142 2>&1 | grep -q "Connected"; then
+        # Use timeout to prevent telnet from hanging indefinitely.
+        if echo "quit" | timeout 5 telnet "$ip" 3142 2>&1 | grep -q "Connected"; then
             echo "Connection successful using telnet." >&2
             return 0
         else
             echo "Connection failed using telnet." >&2
         fi
     fi
-    
+
     echo "APT Cacher NG is unreachable. Please check if the service is running and the firewall is open on port 3142." >&2
     return 1
 }
 
-# Loop until a valid IP is provided or the user aborts.
+# Loop until a valid IP is provided or the user cancels.
 while true; do
     # Prompt the user for the apt-cacher-ng server IP address.
     APTCACHER_IP=$(dialog --stdout --inputbox "Enter the IP address of your apt-cacher-ng server (e.g. 192.168.1.100):" 8 60)
 
-    # If the IP is left blank, abort the installer.
+    # If the IP is left blank (or canceled), abort the installer.
     if [[ -z "$APTCACHER_IP" ]]; then
-        dialog --msgbox "No IP address provided. Aborting installer." 6 40
+        dialog --msgbox "No IP address provided. Installation cancelled." 6 40
         clear
         exit 1
     fi
@@ -90,15 +91,16 @@ while true; do
         dialog --msgbox "Successfully connected to apt-cacher-ng on $APTCACHER_IP:3142." 6 60
         break
     else
-        dialog --yesno "Could not connect to apt-cacher-ng on $APTCACHER_IP:3142.\n\nWould you like to enter a new IP address? Selecting 'No' will abort and remove all configurations." 8 60
+        # Ask the user if they want to try again or cancel installation.
+        dialog --yesno --title "Connection Failed" --yes-label "Try Again" --no-label "Cancel" \
+        "Could not connect to apt-cacher-ng on $APTCACHER_IP:3142.\n\nWould you like to enter a new IP address?" 8 60
         if [[ $? -ne 0 ]]; then
-            dialog --msgbox "Aborting installation. Removing all configurations." 6 40
-            rm -f /etc/apt/apt.conf.d/01apt-cacher-ng
+            dialog --msgbox "Installation cancelled. No configurations were changed." 6 40
             clear
             exit 1
         fi
+        # If the user chooses "Try Again", the loop will reiterate.
     fi
-
 done
 
 # Define the target APT configuration file.
@@ -110,7 +112,7 @@ if [[ -f "$APT_CONF_FILE" ]]; then
     cp "$APT_CONF_FILE" "${APT_CONF_FILE}.bak"
 fi
 
-# Write the configuration.
+# Write the new configuration.
 cat <<EOF > "$APT_CONF_FILE"
 Acquire::http::Proxy "http://$APTCACHER_IP:3142";
 EOF
