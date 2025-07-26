@@ -2,7 +2,11 @@
 # mount_nfs_shares.sh
 #
 # Maps NFS shares from a single NAS.
-# Validates IP, shows exports, lets user mount selected shares with summaries.
+# - Validates NAS reachability
+# - Shows available exports
+# - Lets user mount shares with custom mount points
+# - Updates /etc/fstab
+# - Verifies and summarizes mounts
 
 set -e
 
@@ -18,10 +22,10 @@ fi
 # Install requirements
 apt update && apt install -y nfs-common dialog
 
-# Ask for NAS IP/hostname
+# Ask for NAS IP or hostname
 NAS_HOST=$(dialog --stdout --inputbox "Enter the IP address or hostname of the NAS:" 8 50)
 
-# Test showmount and capture output properly
+# Validate NAS is reachable and capture showmount output
 if ! showmount -e "$NAS_HOST" > /tmp/showmount_out 2>&1; then
     dialog --yesno "No NFS server found at $NAS_HOST. Would you like to modify the address?" 7 60
     if [ $? -eq 0 ]; then
@@ -33,26 +37,26 @@ if ! showmount -e "$NAS_HOST" > /tmp/showmount_out 2>&1; then
     fi
 fi
 
-# Validate that showmount actually returned usable export lines
+# Check that exports were actually found
 if ! grep -q '^/' /tmp/showmount_out; then
-    dialog --msgbox "No NFS exports found on $NAS_HOST, or the server response was empty." 7 60
+    dialog --msgbox "No NFS exports found on $NAS_HOST, or the response was empty." 7 60
     exit 1
 fi
 
-# Prompt for (optional) credentials
+# Optional: Prompt for credentials
 NAS_USER=$(dialog --stdout --inputbox "Enter your NAS username (optional):" 8 40)
 NAS_PASS=$(dialog --stdout --passwordbox "Enter your NAS password (optional):" 8 40)
 
-# Parse exports
+# Parse the export list into an array (fixed!)
 EXPORT_LIST=$(grep '^/' /tmp/showmount_out | awk '{print $1}')
-IFS=$'\n' read -rd '' -a EXPORT_ARRAY <<<"$EXPORT_LIST"
+IFS=$'\n' read -r -a EXPORT_ARRAY <<<"$EXPORT_LIST"
 
 if [ ${#EXPORT_ARRAY[@]} -eq 0 ]; then
     dialog --msgbox "No NFS exports found on $NAS_HOST." 7 50
     exit 1
 fi
 
-# Build checklist
+# Build dialog checklist
 CHECKLIST_ITEMS=()
 for export in "${EXPORT_ARRAY[@]}"; do
     CHECKLIST_ITEMS+=("$export" "$NAS_HOST:$export" "off")
@@ -65,12 +69,12 @@ SELECTED_EXPORTS=$(echo "$SELECTED_EXPORTS" | tr -d '"')
 # Backup fstab
 cp /etc/fstab "$FSTAB_BACKUP"
 
-# Loop through selections
+# Mount each selected export
 for export in $SELECTED_EXPORTS; do
     default_mount="/mnt/$(basename "$export")"
     MOUNT_POINT=$(dialog --stdout --inputbox "Enter mount point for $export (default: $default_mount):" 8 60 "$default_mount")
 
-    # Validate
+    # Validate mount point
     if [[ ! "$MOUNT_POINT" =~ ^/ ]]; then
         dialog --msgbox "Invalid mount point: $MOUNT_POINT" 6 50
         continue
@@ -79,22 +83,21 @@ for export in $SELECTED_EXPORTS; do
     mkdir -p "$MOUNT_POINT"
     NFS_SOURCE="${NAS_HOST}:${export}"
 
-    # Prevent dupes
+    # Avoid duplicate entries
     if grep -qs "$NFS_SOURCE $MOUNT_POINT nfs" /etc/fstab; then
         dialog --msgbox "Entry for $MOUNT_POINT already exists. Skipping." 6 60
         continue
     fi
 
-    # Write to fstab
     echo "$NFS_SOURCE $MOUNT_POINT nfs defaults,timeo=900,retrans=5,_netdev,nofail 0 0" >> /etc/fstab
     echo "$(date): Added $NFS_SOURCE to $MOUNT_POINT" >> "$LOG_FILE"
 done
 
-# Apply mounts
+# Apply all mounts
 systemctl daemon-reexec
 mount -a
 
-# Summary
+# Build mount summary
 MSG="Mount summary:\n\n"
 for export in $SELECTED_EXPORTS; do
     MP="/mnt/$(basename "$export")"
